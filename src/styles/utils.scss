@@ -1,0 +1,7 @@
+@mixin space($direction: row, $space: 12px) {
+  display: flex;
+  flex-direction: $direction;
+  & > *:not(:last-child) {
+    margin-right: $space;
+  }
+}
