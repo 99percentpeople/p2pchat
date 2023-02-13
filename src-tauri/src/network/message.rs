@@ -6,7 +6,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::models::{FileInfo, Group, GroupInfo};
+use crate::models::{FileInfo, GroupId, GroupInfo, UserInfo};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +37,9 @@ pub enum Event {
     PeerDiscovered {
         peer_id: PeerId,
     },
+    PeerExpired {
+        peer_id: PeerId,
+    },
     NewListenAddr {
         address: Multiaddr,
         listener_id: ListenerId,
@@ -51,12 +54,14 @@ pub enum Event {
 pub enum Request {
     File(FileInfo),
     Group(TopicHash),
+    User(PeerId),
 }
 
 #[derive(Debug, Clone)]
 pub enum Response {
     File(Vec<u8>),
-    Group((Group, GroupInfo)),
+    Group((GroupId, GroupInfo)),
+    User(UserInfo),
 }
 // #[derive(Debug, Clone, PartialEq, Eq, Error)]
 // pub enum ResponseError {

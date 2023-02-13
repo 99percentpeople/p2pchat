@@ -37,14 +37,6 @@ pub struct Network {
     pub event_receiver: mpsc::Receiver<Event>,
 }
 
-/// Creates the network components, namely:
-///
-/// - The network client to interact with the network layer from anywhere
-///   within your application.
-///
-/// - The network event stream, e.g. for incoming requests.
-///
-/// - The network task driving the network itself.
 pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
     // Create a public/private key pair, either random or based on a seed.
 
@@ -277,39 +269,6 @@ impl EventLoop {
         event: SwarmEvent<ComposedEvent, THandlerErr>,
     ) {
         match event {
-            // SwarmEvent::Behaviour(ComposedEvent::Floodsub(event)) => match event {
-            //     FloodsubEvent::Message(message) => {
-            //         log::debug!("Received message: {:?}", message);
-            //         let _ = self
-            //             .event_sender
-            //             .send(Event::InboundMessage {
-            //                 peer_id: message.source,
-            //                 message: serde_json::from_slice(message.data.as_slice()).unwrap(),
-            //             })
-            //             .await
-            //             .expect("Event receiver not to be dropped.");
-            //     }
-            //     FloodsubEvent::Subscribed { peer_id, .. } => {
-            //         let _ = self
-            //             .event_sender
-            //             .send(Event::InboundMessage {
-            //                 peer_id,
-            //                 message: Message::Connected,
-            //             })
-            //             .await
-            //             .expect("Event receiver not to be dropped.");
-            //     }
-            //     FloodsubEvent::Unsubscribed { peer_id, .. } => {
-            //         let _ = self
-            //             .event_sender
-            //             .send(Event::InboundMessage {
-            //                 peer_id,
-            //                 message: Message::Disconnected,
-            //             })
-            //             .await
-            //             .expect("Event receiver not to be dropped.");
-            //     }
-            // },
             SwarmEvent::Behaviour(ComposedEvent::Gossipsub(event)) => match event {
                 GossipsubEvent::Message {
                     propagation_source,
@@ -405,6 +364,10 @@ impl EventLoop {
                             .behaviour_mut()
                             .gossipsub
                             .remove_explicit_peer(&peer_id);
+                        self.event_sender
+                            .send(Event::PeerExpired { peer_id })
+                            .await
+                            .unwrap();
                     }
                 }
             },

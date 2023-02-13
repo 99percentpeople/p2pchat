@@ -4,10 +4,12 @@ use libp2p::{
     gossipsub::error::{PublishError, SubscriptionError},
     request_response::OutboundFailure,
     swarm::DialError,
-    TransportError,
+    PeerId, TransportError,
 };
 use serde::Serialize;
 use thiserror::Error;
+
+use crate::models::GroupId;
 
 #[derive(Debug, Error, Serialize)]
 pub enum SettingErrorKind {
@@ -56,9 +58,11 @@ pub enum NetworkError {
     #[error("Request file error: {0}")]
     RequestFileError(String),
     #[error(transparent)]
-    Other(#[from] anyhow::Error),
-    #[error(transparent)]
     SettingError(#[from] SettingError),
+    #[error("Manager error: {0}")]
+    ManagerError(#[from] ManagerError),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 impl From<OutboundFailure> for NetworkError {
@@ -74,4 +78,12 @@ impl Serialize for NetworkError {
     {
         serializer.serialize_str(self.to_string().as_str())
     }
+}
+
+#[derive(Debug, Error, Serialize)]
+pub enum ManagerError {
+    #[error("Group not exist {0}")]
+    GroupNotExist(GroupId),
+    #[error("Peer not exist {0}")]
+    PeerNotExist(PeerId),
 }

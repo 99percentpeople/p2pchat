@@ -15,9 +15,7 @@
       "DOM"
     ],
     "skipLibCheck": true,
-    "types": [
-      "vue/ref-macros"
-    ]
+    "types": []
   },
   "include": [
     "src/**/*.ts",

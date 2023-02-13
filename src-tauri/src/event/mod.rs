@@ -2,11 +2,11 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tauri::AppHandle;
 
 use crate::{
-    error::NetworkError,
-    models::{FileInfo, Group, GroupInfo, GroupMessage, Setting},
+    error::{ManagerError, NetworkError},
+    models::{FileInfo, GroupId, GroupInfo, GroupMessage, GroupState, Manager, Setting},
     network::{self, message},
 };
-use libp2p::{self, Multiaddr, PeerId};
+use libp2p::{self, swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
 use tokio::{
     join,
     sync::{mpsc, oneshot, Mutex},
@@ -21,35 +21,53 @@ use self::{
     frontend::FrontendEventLoop,
     inbound::InboundEventLoop,
 };
+#[derive(Debug, Clone)]
+pub struct AppState {
+    pub(super) setting: Arc<Mutex<Setting>>,
+    pub(super) listeners: Arc<Mutex<HashMap<ListenerId, Vec<Multiaddr>>>>,
+    pub(super) manager: Manager,
+}
 
-pub struct FileShareApp {
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            setting: Arc::new(Mutex::new(Setting::default())),
+            listeners: Arc::new(Mutex::new(HashMap::new())),
+            manager: Manager::new(),
+        }
+    }
+}
+
+pub struct ChatApp {
     pub app: AppHandle,
+    pub state: AppState,
     pub command_handle: CommandHandle,
     pub command_receiver: mpsc::Receiver<AppCommand>,
 }
 
-impl FileShareApp {
+impl ChatApp {
     pub async fn run(self) -> anyhow::Result<()> {
         let network = network::new(None)?;
         let (frontend_sender, frontend_receiver) = mpsc::channel(100);
 
+        let state = self.state;
+
         let frontend_event_loop = FrontendEventLoop {
             app: self.app.clone(),
+            state: state.clone(),
             frontend_receiver,
         };
         let inbound_event_loop = InboundEventLoop {
             client: network.client.clone(),
             inbound_event_receiver: network.event_receiver,
-            command_handle: self.command_handle.clone(),
             frontend_sender: frontend_sender.clone(),
+            state: state.clone(),
         };
         let command_event_loop = CommandEventLoop {
             command_receiver: self.command_receiver,
             client: network.client.clone(),
-            provide_list: Arc::new(Mutex::new(HashMap::new())),
-            setting: Arc::new(Mutex::new(Setting::default())),
-            listeners: Arc::new(Mutex::new(HashMap::new())),
-            group_list: Arc::new(Mutex::new(HashMap::new())),
+            state: state.clone(),
+            frontend_sender,
         };
 
         let (_, _, _, _) = join![
@@ -126,14 +144,14 @@ pub async fn save_setting(
 pub async fn list_provide(
     command_handle: tauri::State<'_, CommandHandle>,
 ) -> Result<Vec<FileInfo>, NetworkError> {
-    Ok(command_handle
-        .provide_list()
+    let local_peer_id = command_handle.local_peer_id().await;
+    command_handle
+        .manager()
         .await
-        .lock()
+        .file()
+        .list_provide(&local_peer_id)
         .await
-        .keys()
-        .cloned()
-        .collect())
+        .ok_or(ManagerError::PeerNotExist(local_peer_id).into())
 }
 
 #[tauri::command]
@@ -167,44 +185,61 @@ pub async fn listeners(
 }
 
 #[tauri::command]
-pub async fn groups(
+pub async fn get_groups(
     command_handle: tauri::State<'_, CommandHandle>,
-) -> Result<HashMap<Group, GroupInfo>, NetworkError> {
-    Ok(command_handle.groups().await.lock().await.clone())
+) -> Result<HashMap<GroupId, GroupInfo>, NetworkError> {
+    Ok(command_handle.groups().await)
 }
 
 #[tauri::command]
 pub async fn subscribe(
     command_handle: tauri::State<'_, CommandHandle>,
-    group: Group,
-) -> Result<GroupInfo, NetworkError> {
+    group: GroupId,
+) -> Result<(), NetworkError> {
     command_handle.subscribe(group).await
 }
 
 #[tauri::command]
 pub async fn unsubscribe(
     command_handle: tauri::State<'_, CommandHandle>,
-    group: Group,
+    group: GroupId,
 ) -> Result<(), NetworkError> {
     command_handle.unsubscribe(group).await?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn publish(
+pub async fn publish_text(
     command_handle: tauri::State<'_, CommandHandle>,
-    group: Group,
-    message: message::Message,
+    group: GroupId,
+    text: String,
 ) -> Result<GroupMessage, NetworkError> {
+    let message = message::Message::Text(text);
+    command_handle.publish(group, message).await
+}
+
+#[tauri::command]
+pub async fn publish_file(
+    command_handle: tauri::State<'_, CommandHandle>,
+    group: GroupId,
+    file_path: PathBuf,
+) -> Result<GroupMessage, NetworkError> {
+    let info = command_handle
+        .manager()
+        .await
+        .file()
+        .add_local_file(command_handle.local_peer_id().await, file_path)
+        .await?;
+    let message = message::Message::File(info);
     command_handle.publish(group, message).await
 }
 
 #[tauri::command]
 pub async fn new_group(
     command_handle: tauri::State<'_, CommandHandle>,
-    group_name: String,
-) -> Result<(Group, GroupInfo), NetworkError> {
-    command_handle.new_group(group_name).await
+    group_info: GroupInfo,
+) -> Result<GroupId, NetworkError> {
+    command_handle.new_group(group_info).await
 }
 
 #[tauri::command]
@@ -212,4 +247,44 @@ pub async fn local_peer_id(
     command_handle: tauri::State<'_, CommandHandle>,
 ) -> Result<PeerId, NetworkError> {
     Ok(command_handle.local_peer_id().await)
+}
+
+#[tauri::command]
+pub async fn get_group_status(
+    command_handle: tauri::State<'_, CommandHandle>,
+    group_id: GroupId,
+) -> Result<GroupState, String> {
+    command_handle
+        .manager()
+        .await
+        .group()
+        .get_group_status(&group_id)
+        .await
+        .ok_or("Group not found".to_string())
+}
+#[tauri::command]
+pub async fn get_group_include_peer(
+    command_handle: tauri::State<'_, CommandHandle>,
+    peer_id: PeerId,
+) -> Result<Vec<GroupId>, ManagerError> {
+    command_handle
+        .manager()
+        .await
+        .user()
+        .get_user_subscribe(&peer_id)
+        .await
+        .ok_or(ManagerError::PeerNotExist(peer_id))
+}
+
+#[tauri::command]
+pub async fn get_group_not_include_peer(
+    command_handle: tauri::State<'_, CommandHandle>,
+    peer_id: PeerId,
+) -> Result<Vec<GroupId>, ManagerError> {
+    command_handle
+        .manager()
+        .await
+        .get_user_not_subscribe(&peer_id)
+        .await
+        .ok_or(ManagerError::PeerNotExist(peer_id))
 }

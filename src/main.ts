@@ -10,6 +10,12 @@ import "./styles/main.scss";
 const vuetify = createVuetify({
   theme: {
     defaultTheme: "light",
+    variations: {
+      colors: ["primary", "secondary"],
+      lighten: 2,
+      darken: 2,
+    },
+    themes: {},
   },
 });
 

@@ -4,7 +4,7 @@
 )]
 
 mod error;
-mod eventloop;
+mod event;
 mod models;
 mod network;
 pub mod store;
@@ -13,9 +13,9 @@ use anyhow::Context;
 use tauri::Manager;
 use tokio::{sync::mpsc, task::LocalSet};
 
-use eventloop::{
+use event::{
     command::{AppCommand, CommandHandle},
-    FileShareApp,
+    AppState, ChatApp,
 };
 
 #[tokio::main]
@@ -46,9 +46,10 @@ async fn main() -> anyhow::Result<()> {
 
                 #[cfg(any(windows, target_os = "macos"))]
                 window_shadows::set_shadow(&window, true).unwrap();
-
-                let app = FileShareApp {
+                let state = AppState::default();
+                let app = ChatApp {
                     app: app.handle(),
+                    state,
                     command_handle: command_handle1,
                     command_receiver: process_receiver,
                 };
@@ -58,21 +59,25 @@ async fn main() -> anyhow::Result<()> {
             })
             .manage(command_handle)
             .invoke_handler(tauri::generate_handler![
-                eventloop::get_file,
-                eventloop::start_listen,
-                eventloop::stop_listen,
-                eventloop::listeners,
-                eventloop::load_setting,
-                eventloop::save_setting,
-                eventloop::list_provide,
-                eventloop::dial,
-                eventloop::groups,
-                eventloop::subscribe,
-                eventloop::unsubscribe,
-                eventloop::publish,
-                eventloop::new_group,
-                eventloop::local_peer_id,
-                eventloop::connected_peers,
+                event::get_file,
+                event::start_listen,
+                event::stop_listen,
+                event::listeners,
+                event::load_setting,
+                event::save_setting,
+                event::list_provide,
+                event::dial,
+                event::get_groups,
+                event::subscribe,
+                event::unsubscribe,
+                event::publish_text,
+                event::publish_file,
+                event::new_group,
+                event::local_peer_id,
+                event::connected_peers,
+                event::get_group_status,
+                event::get_group_include_peer,
+                event::get_group_not_include_peer
             ])
             .run(tauri::generate_context!())
             .with_context(|| "error while running tauri application")

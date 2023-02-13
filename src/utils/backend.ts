@@ -1,37 +1,14 @@
 import { invoke } from "@tauri-apps/api";
-
-export type FileInfo = {
-  name: string;
-  size: number;
-  createTime?: Date;
-  modifyTime?: Date;
-};
-export type FileSource = {
-  local?: string;
-  remote?: string;
-};
-export type Setting = {
-  recvPath: string;
-};
-
-export type Group = string;
-
-export type GroupMessage = {
-  message: Message;
-  timestamp: Date;
-  source?: string;
-};
-
-export type Message = {
-  text?: string;
-  file?: FileInfo;
-};
-
-export type GroupInfo = {
-  name: string;
-  history: GroupMessage[];
-  subscribers: string[];
-};
+import {
+  FileInfo,
+  GroupId,
+  GroupInfo,
+  GroupMessage,
+  GroupStatus,
+  Message,
+  PeerId,
+  Setting,
+} from "./types";
 
 export async function startListen(listenAddr?: string) {
   try {
@@ -140,7 +117,7 @@ export async function dial(addr: string) {
 }
 
 export async function publish(
-  group: Group,
+  group: GroupId,
   message: Message
 ): Promise<GroupMessage> {
   try {
@@ -151,23 +128,40 @@ export async function publish(
   }
 }
 
-export async function subscribe(group: Group): Promise<GroupInfo> {
+export async function subscribe(group: GroupId) {
   try {
-    return await invoke("subscribe", { group });
+    await invoke("subscribe", { group });
   } catch (err) {
     console.error(err);
     throw err;
   }
 }
 
-export async function groups(): Promise<{ [index: string]: GroupInfo }> {
-  return await invoke<{ [index: string]: GroupInfo }>("groups");
+export async function getGroups(): Promise<{ [index: GroupId]: GroupInfo }> {
+  return await invoke<{ [index: string]: GroupInfo }>("get_groups");
 }
 
-export async function newGroup(groupName: string): Promise<[Group, GroupInfo]> {
-  return await invoke<[Group, GroupInfo]>("new_group", { groupName });
+export async function newGroup(groupInfo: GroupInfo): Promise<GroupId> {
+  return await invoke<GroupId>("new_group", { groupInfo });
 }
 
 export async function localPeerId(): Promise<string> {
   return await invoke<string>("local_peer_id");
+}
+
+export async function getGroupStatus(groupId: GroupId): Promise<GroupStatus> {
+  return await invoke<GroupStatus>("get_group_status", { groupId });
+}
+
+export async function getGroupIncludePeer(peerId: PeerId): Promise<GroupId[]> {
+  let res = await invoke<string[]>("get_group_include_peers", { peerId });
+  console.log(res);
+
+  return res;
+}
+
+export async function getGroupNotIncludePeer(
+  peerId: PeerId
+): Promise<GroupId[]> {
+  return await invoke<string[]>("get_group_not_include_peers", { peerId });
 }

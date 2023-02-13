@@ -42,6 +42,7 @@ uuid = { version = "1.2.2", features = [
     "macro-diagnostics",
     "serde",
 ] }
+url = { version = "2.3.1", features = ["serde"] }
 
 [features]
 # by default Tauri runs in production mode

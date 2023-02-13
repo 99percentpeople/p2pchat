@@ -40,8 +40,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/api/dialog";
 import { downloadDir } from "@tauri-apps/api/path";
-import { useToggle } from "@vueuse/core";
-import { useUISettings } from "../states/setting-state";
 import { useTheme } from "vuetify";
 import {
   startListen,
@@ -52,7 +50,7 @@ import {
 } from "../utils/backend";
 
 const theme = useTheme();
-const isDark = $computed(() => theme.global.name.value === "dark");
+const isDark = computed(() => theme.global.name.value === "dark");
 
 const toggleTheme = () =>
   (theme.global.name.value = theme.global.current.value.dark
@@ -89,10 +87,6 @@ async function onLoad() {
   Object.assign(setting, await loadSetting());
 }
 
-const toggleDark = useToggle(isDark);
-// function toggleDark(event: any) {
-//   console.log(event.returnValue);
-// }
 const listenStatus: {
   status: boolean;
   listeners: string[];

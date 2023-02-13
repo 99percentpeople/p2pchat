@@ -23,12 +23,12 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
   },
   plugins: [
-    vue({ reactivityTransform: true }),
+    vue({}),
     vuetify({ styles: { configFile: "./src/styles/settings.scss" } }),
     AutoImport({
       dts: "./src/auto-imports.d.ts",
       dirs: ["./src/pages", "./src/components"],
-      imports: ["vue", "vue-router", "pinia"],
+      imports: ["vue", "vue-router", "pinia", "@vueuse/core"],
       resolvers: [],
     }),
     Components({

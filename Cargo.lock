@@ -171,6 +171,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "url",
  "uuid 1.2.2",
  "void",
  "window-shadows",
