@@ -2,7 +2,7 @@ pub mod behaviour;
 pub mod message;
 
 use crate::error::NetworkError;
-use crate::models::GroupMessage;
+use crate::models::{GroupId, GroupInfo, GroupMessage};
 
 /// The network module, encapsulating all network related logic.
 use futures::StreamExt;
@@ -23,9 +23,10 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 use self::behaviour::*;
 use self::message::*;
@@ -34,7 +35,7 @@ pub struct Network {
     pub client: Client,
     pub peer_id: PeerId,
     pub event_loop: EventLoop,
-    pub event_receiver: mpsc::Receiver<Event>,
+    pub event_receiver: mpsc::Receiver<InboundEvent>,
 }
 
 pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
@@ -98,12 +99,13 @@ pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
     .build();
 
     let (command_sender, command_receiver) = mpsc::channel(100);
-    let (event_sender, event_receiver) = mpsc::channel::<Event>(100);
+    let (event_sender, event_receiver) = mpsc::channel::<InboundEvent>(100);
 
     let network = Network {
         client: Client {
             sender: command_sender,
             local_peer_id: peer_id,
+            pending_new_group: None,
         },
         peer_id,
         event_loop: EventLoop::new(swarm, command_receiver, event_sender),
@@ -117,6 +119,7 @@ pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
 pub struct Client {
     sender: mpsc::Sender<Command>,
     local_peer_id: PeerId,
+    pub pending_new_group: Option<(GroupId, GroupInfo)>,
 }
 
 impl Client {
@@ -143,10 +146,14 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
     /// Dial the given peer at the given address.
-    pub async fn dial(&mut self, peer_id: PeerId) -> Result<(), NetworkError> {
+    pub async fn dial(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), NetworkError> {
         let (sender, receiver) = oneshot::channel();
         self.sender
-            .send(Command::Dial { peer_id, sender })
+            .send(Command::Dial {
+                peer_id,
+                addr,
+                sender,
+            })
             .await
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not to be dropped.")
@@ -181,7 +188,7 @@ impl Client {
     pub async fn publish(
         &self,
         topic: Sha256Topic,
-        message: GroupMessage,
+        message: Message,
     ) -> Result<MessageId, NetworkError> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
@@ -226,21 +233,39 @@ impl Client {
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not to be dropped.")
     }
+    pub async fn listeners(&self) -> HashMap<ListenerId, Vec<Multiaddr>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(Command::Listeners { sender })
+            .await
+            .expect("Command receiver not to be dropped.");
+        receiver.await.expect("Sender not to be dropped.")
+    }
+    pub async fn new_group(
+        &mut self,
+        group_id: GroupId,
+        group_info: GroupInfo,
+    ) -> Result<(), NetworkError> {
+        self.pending_new_group = Some((group_id.clone(), group_info));
+        self.subscribe(group_id.topic()).await?;
+        Ok(())
+    }
 }
 
 pub struct EventLoop {
     swarm: Swarm<ComposedBehaviour>,
     command_receiver: mpsc::Receiver<Command>,
-    event_sender: mpsc::Sender<Event>,
+    event_sender: mpsc::Sender<InboundEvent>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), NetworkError>>>,
     pending_request_file: HashMap<RequestId, oneshot::Sender<Result<Response, NetworkError>>>,
+    listeners: HashMap<ListenerId, Vec<Multiaddr>>,
 }
 
 impl EventLoop {
     fn new(
         swarm: Swarm<ComposedBehaviour>,
         command_receiver: mpsc::Receiver<Command>,
-        event_sender: mpsc::Sender<Event>,
+        event_sender: mpsc::Sender<InboundEvent>,
     ) -> Self {
         Self {
             swarm,
@@ -248,6 +273,7 @@ impl EventLoop {
             event_sender,
             pending_dial: Default::default(),
             pending_request_file: Default::default(),
+            listeners: HashMap::new(),
         }
     }
 
@@ -275,12 +301,13 @@ impl EventLoop {
                     message_id,
                     message,
                 } => {
+                    let group_message =
+                        serde_json::from_slice::<GroupMessage>(&message.data).unwrap();
                     let _ = self
                         .event_sender
-                        .send(Event::InboundMessage {
-                            propagation_source,
+                        .send(InboundEvent::MessageReceived {
                             message_id,
-                            message,
+                            message: group_message,
                         })
                         .await
                         .expect("Event receiver not to be dropped.");
@@ -290,14 +317,14 @@ impl EventLoop {
 
                     let _ = self
                         .event_sender
-                        .send(Event::Subscribed { peer_id, topic })
+                        .send(InboundEvent::Subscribed { peer_id, topic })
                         .await
                         .expect("Event receiver not to be dropped.");
                 }
                 GossipsubEvent::Unsubscribed { peer_id, topic } => {
                     let _ = self
                         .event_sender
-                        .send(Event::Unsubscribed { peer_id, topic })
+                        .send(InboundEvent::Unsubscribed { peer_id, topic })
                         .await
                         .expect("Event receiver not to be dropped.");
                 }
@@ -311,9 +338,9 @@ impl EventLoop {
                 } => {
                     let _ = self
                         .event_sender
-                        .send(Event::InboundRequest {
+                        .send(InboundEvent::InboundRequest {
                             request: request.0,
-                            channel,
+                            channel: Arc::new(Mutex::new(Some(channel))),
                         })
                         .await
                         .expect("Event receiver not to be dropped.");
@@ -351,7 +378,7 @@ impl EventLoop {
                             .gossipsub
                             .add_explicit_peer(&peer_id);
                         self.event_sender
-                            .send(Event::PeerDiscovered { peer_id })
+                            .send(InboundEvent::PeerDiscovered { peer_id })
                             .await
                             .unwrap();
                     }
@@ -365,19 +392,22 @@ impl EventLoop {
                             .gossipsub
                             .remove_explicit_peer(&peer_id);
                         self.event_sender
-                            .send(Event::PeerExpired { peer_id })
+                            .send(InboundEvent::PeerExpired { peer_id })
                             .await
                             .unwrap();
                     }
                 }
             },
-
             SwarmEvent::NewListenAddr {
                 address,
                 listener_id,
             } => {
+                self.listeners
+                    .entry(listener_id)
+                    .and_modify(|e| e.push(address.clone()))
+                    .or_default();
                 self.event_sender
-                    .send(Event::NewListenAddr {
+                    .send(InboundEvent::NewListenAddr {
                         address,
                         listener_id,
                     })
@@ -389,6 +419,9 @@ impl EventLoop {
                 addresses,
                 reason,
             } => {
+                self.listeners
+                    .entry(listener_id)
+                    .and_modify(|e| e.retain(|x| !addresses.contains(&x)));
                 match reason {
                     Ok(()) => addresses.iter().for_each(|address| {
                         log::info!(
@@ -407,7 +440,7 @@ impl EventLoop {
                     }),
                 }
                 self.event_sender
-                    .send(Event::ListenerClosed {
+                    .send(InboundEvent::ListenerClosed {
                         listener_id,
                         addresses,
                     })
@@ -454,9 +487,13 @@ impl EventLoop {
                 }
                 let _ = sender.send(Ok(()));
             }
-            Command::Dial { peer_id, sender } => {
+            Command::Dial {
+                peer_id,
+                addr,
+                sender,
+            } => {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
-                    match self.swarm.dial(peer_id) {
+                    match self.swarm.dial(addr) {
                         Ok(()) => {
                             e.insert(sender);
                         }
@@ -492,11 +529,13 @@ impl EventLoop {
                 message,
                 sender,
             } => {
+                let group_message =
+                    GroupMessage::new(message, self.swarm.local_peer_id().to_owned());
                 let res = self
                     .swarm
                     .behaviour_mut()
                     .gossipsub
-                    .publish(topic, serde_json::to_vec(&message).unwrap());
+                    .publish(topic, serde_json::to_vec(&group_message).unwrap());
                 sender
                     .send(res.map_err(Into::into))
                     .expect("Receiver not to be dropped");
@@ -507,6 +546,14 @@ impl EventLoop {
                         if !res {
                             log::warn!("Already subscribed to topic {:?}", topic);
                         }
+                        let local_peer_id = self.swarm.local_peer_id().clone();
+                        self.event_sender
+                            .send(InboundEvent::Subscribed {
+                                peer_id: local_peer_id,
+                                topic: topic.hash(),
+                            })
+                            .await
+                            .unwrap();
                         let _ = sender.send(Ok(()));
                     }
                     Err(e) => {
@@ -520,6 +567,14 @@ impl EventLoop {
                         if !res {
                             log::warn!("Already unsubscribed from topic {:?}", topic);
                         }
+                        let local_peer_id = self.swarm.local_peer_id().clone();
+                        self.event_sender
+                            .send(InboundEvent::Unsubscribed {
+                                peer_id: local_peer_id,
+                                topic: topic.hash(),
+                            })
+                            .await
+                            .unwrap();
                         let _ = sender.send(Ok(()));
                     }
                     Err(e) => {
@@ -530,6 +585,10 @@ impl EventLoop {
             Command::ConnectedPeers { sender } => {
                 let peers = self.swarm.connected_peers().cloned().collect();
                 let _ = sender.send(peers);
+            }
+            Command::Listeners { sender } => {
+                let listeners = self.listeners.clone();
+                let _ = sender.send(listeners);
             }
         }
     }
@@ -547,6 +606,7 @@ enum Command {
     },
     Dial {
         peer_id: PeerId,
+        addr: Multiaddr,
         sender: oneshot::Sender<Result<(), NetworkError>>,
     },
     Request {
@@ -560,7 +620,7 @@ enum Command {
     },
     Publish {
         topic: Sha256Topic,
-        message: GroupMessage,
+        message: Message,
         sender: oneshot::Sender<Result<MessageId, NetworkError>>,
     },
     Subscribe {
@@ -573,5 +633,8 @@ enum Command {
     },
     ConnectedPeers {
         sender: oneshot::Sender<Vec<PeerId>>,
+    },
+    Listeners {
+        sender: oneshot::Sender<HashMap<ListenerId, Vec<Multiaddr>>>,
     },
 }

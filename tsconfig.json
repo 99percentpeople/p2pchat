@@ -15,7 +15,13 @@
       "DOM"
     ],
     "skipLibCheck": true,
-    "types": []
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts",

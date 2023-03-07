@@ -46,17 +46,10 @@
   </v-container>
 </template>
 <script setup lang="ts">
-import { event } from "@tauri-apps/api";
 import { listen } from "@tauri-apps/api/event";
 import { computedAsync, useAsyncState } from "@vueuse/core";
-import {
-  getGroupStatus,
-  localPeerId,
-  getGroups,
-  getGroupIncludePeer,
-  getGroupNotIncludePeer,
-} from "../utils/backend";
-import { GroupId, GroupInfo } from "../utils/types";
+import { getGroupStatus, localPeerId, getGroups } from "@/utils/backend";
+import { GroupId, GroupInfo } from "@/utils/types";
 const emit = defineEmits<{
   (e: "select", value: GroupId): void;
 }>();

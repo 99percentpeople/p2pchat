@@ -25,11 +25,11 @@ pub enum FrontendEvent {
         message: GroupMessage,
     },
     Subscribed {
-        group: GroupId,
+        group_id: GroupId,
         peer_id: PeerId,
     },
     Unsubscribed {
-        group: GroupId,
+        group_id: GroupId,
         peer_id: PeerId,
     },
     GroupUpdate {
@@ -63,10 +63,16 @@ impl FrontendEventLoop {
                         log::error!("{err}");
                         app.emit_all("error", err.to_string()).unwrap()
                     }
-                    FrontendEvent::Subscribed { group, peer_id } => {
+                    FrontendEvent::Subscribed {
+                        group_id: group,
+                        peer_id,
+                    } => {
                         app.emit_all("subscribed", (group, peer_id)).unwrap();
                     }
-                    FrontendEvent::Unsubscribed { group, peer_id } => {
+                    FrontendEvent::Unsubscribed {
+                        group_id: group,
+                        peer_id,
+                    } => {
                         app.emit_all("unsubscribed", (group, peer_id)).unwrap();
                     }
                     FrontendEvent::GroupUpdate {

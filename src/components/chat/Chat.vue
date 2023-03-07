@@ -47,8 +47,13 @@
 <script setup lang="ts">
 import { listen } from "@tauri-apps/api/event";
 import { VVirtualScroll } from "vuetify/labs/VVirtualScroll";
-import { getGroupStatus, localPeerId, subscribe } from "../../utils/backend";
-import { GroupId, GroupInfo, GroupMessage } from "../../utils/types";
+import {
+  getGroupStatus,
+  localPeerId,
+  publishText,
+  subscribe,
+} from "@/utils/backend";
+import { GroupId, GroupInfo, GroupMessage } from "@/utils/types";
 const props = defineProps<{
   groupId: GroupId | null;
 }>();
@@ -86,7 +91,7 @@ const chatStatus = computed(() => {
 
 function onSendText() {
   if (message.value == "") return;
-
+  publishText(props.groupId!, message.value);
   message.value = "";
 }
 function onJoin() {

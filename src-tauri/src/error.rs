@@ -56,18 +56,20 @@ pub enum NetworkError {
     #[error(transparent)]
     SubscriptionError(#[from] SubscriptionError),
     #[error("Request file error: {0}")]
-    RequestFileError(String),
+    RequestError(String),
     #[error(transparent)]
     SettingError(#[from] SettingError),
     #[error("Manager error: {0}")]
     ManagerError(#[from] ManagerError),
+    #[error("invalid address: {0}")]
+    InvalidAddress(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
 impl From<OutboundFailure> for NetworkError {
     fn from(value: OutboundFailure) -> Self {
-        Self::RequestFileError(value.to_string())
+        Self::RequestError(value.to_string())
     }
 }
 

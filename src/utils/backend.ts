@@ -4,7 +4,7 @@ import {
   GroupId,
   GroupInfo,
   GroupMessage,
-  GroupStatus,
+  GroupState,
   Message,
   PeerId,
   Setting,
@@ -116,12 +116,12 @@ export async function dial(addr: string) {
   }
 }
 
-export async function publish(
+export async function publishText(
   group: GroupId,
-  message: Message
+  text: string
 ): Promise<GroupMessage> {
   try {
-    return await invoke("publish", { group, message });
+    return await invoke("publish", { group, text });
   } catch (err) {
     console.error(err);
     throw err;
@@ -149,8 +149,8 @@ export async function localPeerId(): Promise<string> {
   return await invoke<string>("local_peer_id");
 }
 
-export async function getGroupStatus(groupId: GroupId): Promise<GroupStatus> {
-  return await invoke<GroupStatus>("get_group_status", { groupId });
+export async function getGroupStatus(groupId: GroupId): Promise<GroupState> {
+  return await invoke<GroupState>("get_group_status", { groupId });
 }
 
 export async function getGroupIncludePeer(peerId: PeerId): Promise<GroupId[]> {

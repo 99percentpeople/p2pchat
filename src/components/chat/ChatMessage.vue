@@ -25,7 +25,7 @@ withDefaults(
 );
 </script>
 <style scoped lang="scss">
-@use "../../styles/settings.scss";
+@use "@/styles/settings.scss";
 .chat-bubble {
   max-width: 60%;
   position: relative;

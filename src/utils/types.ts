@@ -32,7 +32,7 @@ export type UserInfo = {
   status: "online" | "offline";
 };
 
-export type GroupStatus = {
+export type GroupState = {
   subscribers: PeerId[];
   history: GroupMessage[];
 };
@@ -46,3 +46,4 @@ export type GroupInfo = {
   name: string;
   description: string | null;
 };
+export type Multiaddr = string;

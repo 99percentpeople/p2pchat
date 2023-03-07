@@ -5,8 +5,10 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-use crate::models::{FileInfo, GroupId, GroupInfo, UserInfo};
+use crate::models::{FileInfo, GroupId, GroupInfo, GroupMessage, UserInfo};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -15,16 +17,15 @@ pub enum Message {
     File(FileInfo),
 }
 
-#[derive(Debug)]
-pub enum Event {
+#[derive(Debug, Clone)]
+pub enum InboundEvent {
     InboundRequest {
         request: Request,
-        channel: ResponseChannel<FileResponse>,
+        channel: Arc<Mutex<Option<ResponseChannel<FileResponse>>>>,
     },
-    InboundMessage {
-        propagation_source: PeerId,
+    MessageReceived {
         message_id: MessageId,
-        message: GossipsubMessage,
+        message: GroupMessage,
     },
     Subscribed {
         peer_id: PeerId,
@@ -47,6 +48,13 @@ pub enum Event {
     ListenerClosed {
         listener_id: ListenerId,
         addresses: Vec<Multiaddr>,
+    },
+    PublishMessage {
+        message: GroupMessage,
+    },
+    NewGroup {
+        group_id: GroupId,
+        group_info: GroupInfo,
     },
 }
 

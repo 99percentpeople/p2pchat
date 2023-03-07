@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { Message } from "../../utils/backend";
+import { Message } from "@/utils/types";
 
 const props = defineProps<{
   msg: Message;
