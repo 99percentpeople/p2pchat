@@ -1,5 +1,5 @@
 use libp2p::{
-    gossipsub::{GossipsubMessage, MessageId, TopicHash},
+    gossipsub::{MessageId, TopicHash},
     request_response::ResponseChannel,
     swarm::derive_prelude::ListenerId,
     Multiaddr, PeerId,
@@ -23,8 +23,9 @@ pub enum InboundEvent {
         request: Request,
         channel: Arc<Mutex<Option<ResponseChannel<FileResponse>>>>,
     },
-    MessageReceived {
+    Message {
         message_id: MessageId,
+        topic: TopicHash,
         message: GroupMessage,
     },
     Subscribed {
@@ -42,19 +43,12 @@ pub enum InboundEvent {
         peer_id: PeerId,
     },
     NewListenAddr {
-        address: Multiaddr,
         listener_id: ListenerId,
+        address: Multiaddr,
     },
     ListenerClosed {
         listener_id: ListenerId,
         addresses: Vec<Multiaddr>,
-    },
-    PublishMessage {
-        message: GroupMessage,
-    },
-    NewGroup {
-        group_id: GroupId,
-        group_info: GroupInfo,
     },
 }
 
@@ -71,19 +65,5 @@ pub enum Response {
     Group((GroupId, GroupInfo)),
     User(UserInfo),
 }
-// #[derive(Debug, Clone, PartialEq, Eq, Error)]
-// pub enum ResponseError {
-//     #[error("File not found: {0}")]
-//     NotFoundError(String),
-// }
-// impl From<io::Error> for ResponseError {
-//     fn from(value: io::Error) -> Self {
-//         match value.kind() {
-//             io::ErrorKind::NotFound => ResponseError::NotFoundError(value.to_string()),
-//             _ => panic!("Unexpected error: {}", value),
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub struct FileResponse(pub Response);

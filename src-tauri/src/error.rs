@@ -55,7 +55,7 @@ pub enum NetworkError {
     PublishError(#[from] PublishError),
     #[error(transparent)]
     SubscriptionError(#[from] SubscriptionError),
-    #[error("Request file error: {0}")]
+    #[error("Request error: {0}")]
     RequestError(String),
     #[error(transparent)]
     SettingError(#[from] SettingError),
@@ -63,6 +63,8 @@ pub enum NetworkError {
     ManagerError(#[from] ManagerError),
     #[error("invalid address: {0}")]
     InvalidAddress(String),
+    #[error("command not found: {0}")]
+    CommandNotFound(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

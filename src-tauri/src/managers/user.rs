@@ -1,7 +1,8 @@
 use crate::{
+    chat_app::{frontend::FrontendEvent, AppState},
     error::{ManagerError, NetworkError},
-    function::HandleInboundEvent,
-    models::{GroupId, GroupInfo, GroupMessage, GroupState, UserInfo, UserState},
+    function::{AppManager, HandleCommand, HandleInboundEvent},
+    models::{UserInfo, UserState},
     network::{
         message::{InboundEvent, Request, Response},
         Client,
@@ -13,7 +14,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct UserManager {
@@ -79,6 +80,8 @@ impl HandleInboundEvent for UserManager {
         &mut self,
         event: InboundEvent,
         mut client: Client,
+        state: AppState,
+        sender: mpsc::Sender<FrontendEvent>,
     ) -> Result<(), NetworkError> {
         match event {
             InboundEvent::InboundRequest { request, channel } => {
@@ -105,15 +108,15 @@ impl HandleInboundEvent for UserManager {
             }
             InboundEvent::Subscribed { peer_id, topic } => {
                 if !self.has_user(&peer_id).await {
-                    match client.request(peer_id, Request::User(peer_id)).await {
-                        Ok(Response::User(user_info)) => {
-                            self.add_user(peer_id, user_info).await;
+                    let (peer_id, user_info) = if peer_id != client.local_peer_id() {
+                        match client.request(peer_id, Request::User(peer_id)).await {
+                            Ok(Response::User(user_info)) => (peer_id, user_info),
+                            _ => return Err(anyhow::anyhow!("user not found").into()),
                         }
-                        Ok(_) => log::warn!("Unexpected response"),
-                        Err(err) => {
-                            Err(err)?;
-                        }
-                    }
+                    } else {
+                        (peer_id, state.local_user.lock().await.clone().into())
+                    };
+                    self.add_user(peer_id, user_info).await;
                 }
                 self.add_subscribe(peer_id, topic).await?;
             }
@@ -124,5 +127,21 @@ impl HandleInboundEvent for UserManager {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl HandleCommand for UserManager {
+    async fn handle_command(&self, command: &str) -> Result<serde_json::Value, NetworkError> {
+        let value = match command {
+            c => return Err(NetworkError::CommandNotFound(c.to_string())),
+        };
+        Ok(value)
+    }
+}
+
+impl AppManager for UserManager {
+    fn name(&self) -> &'static str {
+        "user"
     }
 }

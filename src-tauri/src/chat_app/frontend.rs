@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use tauri::{AppHandle, Manager};
 
 use crate::{
     error::NetworkError,
     models::{GroupId, GroupInfo, GroupMessage, GroupState, UserInfo},
 };
-use libp2p::{self, Multiaddr, PeerId};
+use libp2p::{self, swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
 use tokio::sync::mpsc;
 
 use super::AppState;
@@ -18,7 +17,8 @@ pub struct FrontendEventLoop {
 #[derive(Debug)]
 pub enum FrontendEvent {
     Listen {
-        listeners: Vec<Multiaddr>,
+        listener_id: ListenerId,
+        addresses: Vec<Multiaddr>,
     },
     Message {
         group_id: GroupId,
@@ -35,9 +35,6 @@ pub enum FrontendEvent {
     GroupUpdate {
         group_id: GroupId,
         group_info: GroupInfo,
-    },
-    GroupStateUpdate {
-        group_id: GroupId,
         group_state: GroupState,
     },
     UserUpdate {
@@ -53,8 +50,18 @@ impl FrontendEventLoop {
             let app = self.app.clone();
             tokio::spawn(async move {
                 match event {
-                    FrontendEvent::Listen { listeners } => {
-                        app.emit_all("listen", listeners).unwrap();
+                    FrontendEvent::Listen {
+                        listener_id,
+                        addresses: listen_addr,
+                    } => {
+                        app.emit_all(
+                            "start-listen",
+                            (
+                                unsafe { std::mem::transmute::<ListenerId, u64>(listener_id) },
+                                listen_addr,
+                            ),
+                        )
+                        .unwrap();
                     }
                     FrontendEvent::Message { group_id, message } => {
                         app.emit_all("message", (group_id, message)).unwrap();
@@ -78,19 +85,16 @@ impl FrontendEventLoop {
                     FrontendEvent::GroupUpdate {
                         group_id,
                         group_info,
+                        group_state,
                     } => {
-                        app.emit_all(&format!("group-update"), (group_id, group_info))
-                            .unwrap();
+                        app.emit_all(
+                            &format!("group-update"),
+                            (group_id, group_info, group_state),
+                        )
+                        .unwrap();
                     }
                     FrontendEvent::UserUpdate { peer_id, user_info } => {
                         app.emit_all(&format!("user-update"), (peer_id, user_info))
-                            .unwrap();
-                    }
-                    FrontendEvent::GroupStateUpdate {
-                        group_id,
-                        group_state,
-                    } => {
-                        app.emit_all(&format!("group-state-update"), (group_id, group_state))
                             .unwrap();
                     }
                 }

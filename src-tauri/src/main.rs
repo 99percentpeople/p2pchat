@@ -2,25 +2,25 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
-
+#![feature(trait_upcasting)]
+mod chat_app;
 mod error;
-mod event;
 mod function;
+mod handlers;
 mod managers;
 mod models;
 mod network;
-pub mod store;
+mod store;
 
 use anyhow::Context;
-use tauri::Manager;
+use tauri::{generate_handler, Manager};
 use tokio::{join, task::LocalSet};
 
-use event::{AppState, ChatApp};
+use chat_app::ChatApp;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
-
     let local = LocalSet::new();
 
     let tauri_app = tauri::Builder::default()
@@ -45,20 +45,30 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(())
         })
+        .invoke_handler(generate_handler![
+            handlers::listeners,
+            handlers::start_listen,
+            handlers::stop_listen,
+            handlers::setting,
+            handlers::dail,
+            handlers::publish_message,
+            handlers::new_group,
+            handlers::subscribe,
+            handlers::unsubscribe,
+            handlers::manager,
+        ])
         .build(tauri::generate_context!())?;
 
-    let app_state = AppState::default();
+    let mut chat_app = ChatApp::new(tauri_app.handle());
+    chat_app.initialize()?;
+    tauri_app.manage(chat_app.command_handle()?);
 
-    let chat_app = ChatApp {
-        app: tauri_app.handle(),
-        state: app_state,
-    };
     local.spawn_local(async {
         tauri_app.run(|_app_handle, event| match event {
             _ => {}
         })
     });
 
-    let (_, _) = join!(local, chat_app.run());
+    let (_, _) = join!(local, tokio::spawn(chat_app.run()));
     Ok(())
 }

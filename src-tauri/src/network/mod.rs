@@ -38,9 +38,8 @@ pub struct Network {
     pub event_receiver: mpsc::Receiver<InboundEvent>,
 }
 
-pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
+pub fn new(secret_key_seed: Option<u8>) -> anyhow::Result<Network> {
     // Create a public/private key pair, either random or based on a seed.
-
     let id_keys = match secret_key_seed {
         Some(seed) => {
             let mut bytes = [0u8; 32];
@@ -105,7 +104,8 @@ pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
         client: Client {
             sender: command_sender,
             local_peer_id: peer_id,
-            pending_new_group: None,
+            listeners: HashMap::new(),
+            pending_new_group: Arc::new(Mutex::new(None)),
         },
         peer_id,
         event_loop: EventLoop::new(swarm, command_receiver, event_sender),
@@ -119,12 +119,13 @@ pub fn new(secret_key_seed: Option<u8>) -> Result<Network, anyhow::Error> {
 pub struct Client {
     sender: mpsc::Sender<Command>,
     local_peer_id: PeerId,
-    pub pending_new_group: Option<(GroupId, GroupInfo)>,
+    pub listeners: HashMap<ListenerId, Vec<Multiaddr>>,
+    pub pending_new_group: Arc<Mutex<Option<(GroupId, GroupInfo)>>>,
 }
 
 impl Client {
     /// Listen for incoming connections on the given address.
-    pub async fn start_listening(&mut self, addr: Multiaddr) -> Result<(), NetworkError> {
+    pub async fn start_listening(&self, addr: Multiaddr) -> Result<ListenerId, NetworkError> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::StartListen {
@@ -136,7 +137,7 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
     /// Stop listening.
-    pub async fn stop_listening(&mut self, listeners: Vec<ListenerId>) -> Result<(), NetworkError> {
+    pub async fn stop_listening(&self, listeners: Vec<ListenerId>) -> Result<(), NetworkError> {
         let (sender, receiver) = oneshot::channel();
 
         self.sender
@@ -146,7 +147,7 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
     /// Dial the given peer at the given address.
-    pub async fn dial(&mut self, peer_id: PeerId, addr: Multiaddr) -> Result<(), NetworkError> {
+    pub async fn dial(&self, peer_id: PeerId, addr: Multiaddr) -> Result<(), NetworkError> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::Dial {
@@ -160,11 +161,7 @@ impl Client {
     }
 
     /// Request the content of the given file from the given peer.
-    pub async fn request(
-        &mut self,
-        peer: PeerId,
-        request: Request,
-    ) -> Result<Response, NetworkError> {
+    pub async fn request(&self, peer: PeerId, request: Request) -> Result<Response, NetworkError> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::Request {
@@ -178,7 +175,7 @@ impl Client {
     }
 
     /// Respond with the provided file content to the given request.
-    pub async fn response(&mut self, response: Response, channel: ResponseChannel<FileResponse>) {
+    pub async fn response(&self, response: Response, channel: ResponseChannel<FileResponse>) {
         self.sender
             .send(Command::Response { response, channel })
             .await
@@ -242,11 +239,11 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
     pub async fn new_group(
-        &mut self,
+        &self,
         group_id: GroupId,
         group_info: GroupInfo,
     ) -> Result<(), NetworkError> {
-        self.pending_new_group = Some((group_id.clone(), group_info));
+        *self.pending_new_group.lock().await = Some((group_id.clone(), group_info));
         self.subscribe(group_id.topic()).await?;
         Ok(())
     }
@@ -297,7 +294,7 @@ impl EventLoop {
         match event {
             SwarmEvent::Behaviour(ComposedEvent::Gossipsub(event)) => match event {
                 GossipsubEvent::Message {
-                    propagation_source,
+                    propagation_source: _,
                     message_id,
                     message,
                 } => {
@@ -305,8 +302,9 @@ impl EventLoop {
                         serde_json::from_slice::<GroupMessage>(&message.data).unwrap();
                     let _ = self
                         .event_sender
-                        .send(InboundEvent::MessageReceived {
+                        .send(InboundEvent::Message {
                             message_id,
+                            topic: message.topic,
                             message: group_message,
                         })
                         .await
@@ -402,14 +400,10 @@ impl EventLoop {
                 address,
                 listener_id,
             } => {
-                self.listeners
-                    .entry(listener_id)
-                    .and_modify(|e| e.push(address.clone()))
-                    .or_default();
                 self.event_sender
                     .send(InboundEvent::NewListenAddr {
-                        address,
                         listener_id,
+                        address,
                     })
                     .await
                     .unwrap();
@@ -419,9 +413,14 @@ impl EventLoop {
                 addresses,
                 reason,
             } => {
-                self.listeners
-                    .entry(listener_id)
-                    .and_modify(|e| e.retain(|x| !addresses.contains(&x)));
+                self.event_sender
+                    .send(InboundEvent::ListenerClosed {
+                        listener_id,
+                        addresses: addresses.clone(),
+                    })
+                    .await
+                    .unwrap();
+
                 match reason {
                     Ok(()) => addresses.iter().for_each(|address| {
                         log::info!(
@@ -439,13 +438,6 @@ impl EventLoop {
                         )
                     }),
                 }
-                self.event_sender
-                    .send(InboundEvent::ListenerClosed {
-                        listener_id,
-                        addresses,
-                    })
-                    .await
-                    .unwrap();
             }
             SwarmEvent::IncomingConnection { .. } => {}
             SwarmEvent::ConnectionEstablished {
@@ -475,7 +467,7 @@ impl EventLoop {
         match command {
             Command::StartListen { addr, sender } => {
                 let _ = match self.swarm.listen_on(addr) {
-                    Ok(_) => sender.send(Ok(())),
+                    Ok(listener_id) => sender.send(Ok(listener_id)),
                     Err(e) => sender.send(Err(e.into())),
                 };
             }
@@ -536,6 +528,7 @@ impl EventLoop {
                     .behaviour_mut()
                     .gossipsub
                     .publish(topic, serde_json::to_vec(&group_message).unwrap());
+
                 sender
                     .send(res.map_err(Into::into))
                     .expect("Receiver not to be dropped");
@@ -598,7 +591,7 @@ impl EventLoop {
 enum Command {
     StartListen {
         addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), NetworkError>>,
+        sender: oneshot::Sender<Result<ListenerId, NetworkError>>,
     },
     StopListen {
         sender: oneshot::Sender<Result<(), NetworkError>>,

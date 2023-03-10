@@ -1,6 +1,7 @@
 use crate::{
+    chat_app::{frontend::FrontendEvent, AppState},
     error::NetworkError,
-    function::HandleInboundEvent,
+    function::{AppManager, HandleCommand, HandleInboundEvent},
     models::{GroupId, GroupInfo, GroupMessage, GroupState},
     network::{
         message::{InboundEvent, Request, Response},
@@ -10,7 +11,7 @@ use crate::{
 use async_trait::async_trait;
 use libp2p::{gossipsub::TopicHash, PeerId};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct GroupManager {
@@ -42,7 +43,7 @@ impl GroupManager {
     pub async fn get_groups(&self) -> HashMap<GroupId, GroupInfo> {
         self.groups.lock().await.clone()
     }
-    pub async fn add_message<G: AsRef<GroupId>>(&self, group_id: G, message: GroupMessage) {
+    pub async fn add_message(&self, group_id: &GroupId, message: GroupMessage) {
         if let Some(group_status) = self.group_state.lock().await.get_mut(group_id.as_ref()) {
             group_status.history.push(message);
         }
@@ -91,7 +92,9 @@ impl HandleInboundEvent for GroupManager {
     async fn handle_event(
         &mut self,
         event: InboundEvent,
-        mut client: Client,
+        client: Client,
+        state: AppState,
+        sender: mpsc::Sender<FrontendEvent>,
     ) -> Result<(), NetworkError> {
         match event {
             InboundEvent::InboundRequest { request, channel } => match request {
@@ -109,38 +112,83 @@ impl HandleInboundEvent for GroupManager {
                 }
                 _ => {}
             },
-            InboundEvent::Subscribed { peer_id, topic } => {
-                // if local peer is the one who create the group, then add the group to local
-                match client.pending_new_group.take() {
-                    Some((group_id, group_info)) if peer_id == client.local_peer_id() => {
-                        self.add_group(group_id.clone(), group_info).await;
-                        self.add_subscribe(&group_id, peer_id).await;
-                        return Ok(());
-                    }
-                    _ => {}
+            InboundEvent::Message {
+                message_id: _,
+                topic,
+                message,
+            } => {
+                if let Some(group_id) = self.get_group_by_hash(&topic).await {
+                    self.add_message(&group_id, message.clone()).await;
+                    sender
+                        .send(FrontendEvent::Message { group_id, message })
+                        .await
+                        .unwrap();
                 }
-
+            }
+            InboundEvent::Subscribed { peer_id, topic } => {
                 let group_id = if let Some(group_id) = self.get_group_by_hash(&topic).await {
                     group_id
                 } else {
-                    let Ok(Response::Group((group_id,group_info))) =
-                        client.request(peer_id, Request::Group(topic.clone())).await
-                    else {
-                        return Err(NetworkError::RequestError("error occured when request group info".to_string()));
+                    // log::info!(
+                    //     "{} == {}: {}",
+                    //     peer_id,
+                    //     client.local_peer_id(),
+                    //     peer_id == client.local_peer_id()
+                    // );
+                    let (group_id, group_info) = match client.pending_new_group.lock().await.take()
+                    {
+                        // if local peer is the one who create the group, then add the group to local
+                        Some((group_id, group_info)) if peer_id == client.local_peer_id() => {
+                            log::info!("({}, {:?})", group_id, group_info);
+                            (group_id, group_info)
+                        }
+                        // if local peer is not the one who create the group
+                        _ => {
+                            let Ok(Response::Group((group_id, group_info))) = client.request(peer_id, Request::Group(topic.clone())).await else {
+                                        return Err(anyhow::anyhow!("group not found").into());
+                                    };
+                            (group_id, group_info)
+                        }
                     };
+
                     self.add_group(group_id.clone(), group_info).await;
                     group_id
                 };
 
                 self.add_subscribe(&group_id, peer_id).await;
+                sender
+                    .send(FrontendEvent::Subscribed { group_id, peer_id })
+                    .await
+                    .unwrap();
             }
             InboundEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(group_id) = self.get_group_by_hash(&topic).await {
                     self.remove_subscribe(&group_id, &peer_id).await;
+                    sender
+                        .send(FrontendEvent::Unsubscribed { group_id, peer_id })
+                        .await
+                        .unwrap();
                 }
             }
             _ => {}
         }
         Ok(())
+    }
+}
+
+#[async_trait]
+impl HandleCommand for GroupManager {
+    async fn handle_command(&self, command: &str) -> Result<serde_json::Value, NetworkError> {
+        let value = match command {
+            "get_groups" => serde_json::to_value(self.get_groups().await).unwrap(),
+            c => return Err(NetworkError::CommandNotFound(c.to_string())),
+        };
+        Ok(value)
+    }
+}
+
+impl AppManager for GroupManager {
+    fn name(&self) -> &'static str {
+        "group"
     }
 }

@@ -28,7 +28,6 @@ pub enum ComposedEvent {
     KeepAlive(void::Void),
 }
 // Simple file exchange protocol
-
 #[derive(Debug, Clone)]
 pub struct FileExchangeProtocol();
 #[derive(Clone)]
@@ -36,7 +35,6 @@ pub struct FileExchangeCodec();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRequest(pub Request);
-// #[derive(Debug, Clone, PartialEq, Eq)]
 
 impl ProtocolName for FileExchangeProtocol {
     fn protocol_name(&self) -> &[u8] {
