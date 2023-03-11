@@ -1,7 +1,7 @@
 use crate::{
     chat_app::{frontend::FrontendEvent, AppState},
-    error::NetworkError,
-    function::{AppManager, HandleCommand, HandleInboundEvent},
+    error::{ManagerError, NetworkError},
+    function::{AppManager, HandleInboundEvent, Invoke},
     models::{GroupId, GroupInfo, GroupMessage, GroupState},
     network::{
         message::{InboundEvent, Request, Response},
@@ -51,7 +51,7 @@ impl GroupManager {
     pub async fn get_group_info(&self, group_id: &GroupId) -> Option<GroupInfo> {
         self.groups.lock().await.get(group_id).cloned()
     }
-    pub async fn get_group_status(&self, group_id: &GroupId) -> Option<GroupState> {
+    pub async fn get_group_state(&self, group_id: &GroupId) -> Option<GroupState> {
         self.group_state.lock().await.get(group_id).cloned()
     }
     pub async fn has_group(&self, group_id: &GroupId) -> bool {
@@ -80,9 +80,18 @@ impl GroupManager {
             group_status.subscribers.insert(peer_id);
         }
     }
-    pub async fn remove_subscribe(&self, group_id: &GroupId, peer_id: &PeerId) {
+    pub async fn remove_subscribe(&self, group_id: &GroupId, peer_id: &PeerId) -> bool {
         if let Some(group_status) = self.group_state.lock().await.get_mut(group_id) {
-            group_status.subscribers.remove(peer_id);
+            group_status.subscribers.remove(peer_id)
+        } else {
+            false
+        }
+    }
+    pub async fn has_any_subscriber(&self, group_id: &GroupId) -> bool {
+        if let Some(group_status) = self.group_state.lock().await.get(group_id) {
+            !group_status.subscribers.is_empty()
+        } else {
+            false
         }
     }
 }
@@ -129,17 +138,10 @@ impl HandleInboundEvent for GroupManager {
                 let group_id = if let Some(group_id) = self.get_group_by_hash(&topic).await {
                     group_id
                 } else {
-                    // log::info!(
-                    //     "{} == {}: {}",
-                    //     peer_id,
-                    //     client.local_peer_id(),
-                    //     peer_id == client.local_peer_id()
-                    // );
                     let (group_id, group_info) = match client.pending_new_group.lock().await.take()
                     {
                         // if local peer is the one who create the group, then add the group to local
                         Some((group_id, group_info)) if peer_id == client.local_peer_id() => {
-                            log::info!("({}, {:?})", group_id, group_info);
                             (group_id, group_info)
                         }
                         // if local peer is not the one who create the group
@@ -150,7 +152,13 @@ impl HandleInboundEvent for GroupManager {
                             (group_id, group_info)
                         }
                     };
-
+                    sender
+                        .send(FrontendEvent::GroupUpdate {
+                            group_id: group_id.clone(),
+                            group_info: group_info.clone(),
+                        })
+                        .await
+                        .unwrap();
                     self.add_group(group_id.clone(), group_info).await;
                     group_id
                 };
@@ -163,11 +171,12 @@ impl HandleInboundEvent for GroupManager {
             }
             InboundEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(group_id) = self.get_group_by_hash(&topic).await {
-                    self.remove_subscribe(&group_id, &peer_id).await;
-                    sender
-                        .send(FrontendEvent::Unsubscribed { group_id, peer_id })
-                        .await
-                        .unwrap();
+                    if self.remove_subscribe(&group_id, &peer_id).await {
+                        sender
+                            .send(FrontendEvent::Unsubscribed { group_id, peer_id })
+                            .await
+                            .unwrap();
+                    }
                 }
             }
             _ => {}
@@ -177,11 +186,19 @@ impl HandleInboundEvent for GroupManager {
 }
 
 #[async_trait]
-impl HandleCommand for GroupManager {
-    async fn handle_command(&self, command: &str) -> Result<serde_json::Value, NetworkError> {
+impl Invoke for GroupManager {
+    async fn invoke(
+        &self,
+        command: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, ManagerError> {
         let value = match command {
-            "get_groups" => serde_json::to_value(self.get_groups().await).unwrap(),
-            c => return Err(NetworkError::CommandNotFound(c.to_string())),
+            "get_groups" => serde_json::to_value(self.get_groups().await)?,
+            "get_group_state" if params.is_some() => {
+                let group_id = serde_json::from_value::<GroupId>(params.unwrap())?;
+                serde_json::to_value(self.get_group_state(&group_id).await.unwrap())?
+            }
+            c => return Err(ManagerError::InvalidAction(c.to_string())),
         };
         Ok(value)
     }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::AppState;
 use crate::{
     error::NetworkError,
-    function::HandleCommand,
+    function::Invoke,
     models::{GroupId, GroupInfo, Setting},
     network::{message::Message, Client},
 };
@@ -13,12 +13,12 @@ use libp2p::{self, multiaddr::Protocol, swarm::derive_prelude::ListenerId, Multi
 pub struct AppCommandHandle {
     pub(crate) client: Client,
     pub(crate) state: AppState,
-    pub(crate) managers: HashMap<String, Box<dyn HandleCommand + Send + Sync>>,
+    pub(crate) managers: HashMap<String, Box<dyn Invoke>>,
 }
 
 impl AppCommandHandle {
     pub async fn listeners(&self) -> HashMap<ListenerId, Vec<Multiaddr>> {
-        self.client.listeners().await
+        self.client.listeners.lock().await.clone()
     }
     pub async fn start_listen(
         &self,
@@ -32,7 +32,7 @@ impl AppCommandHandle {
         let listener_id = if let Some(listen_id) = listen_id {
             vec![listen_id]
         } else {
-            self.client.listeners().await.keys().cloned().collect()
+            self.client.listeners.lock().await.keys().cloned().collect()
         };
         self.client.stop_listening(listener_id).await?;
         Ok(())
@@ -76,15 +76,25 @@ impl AppCommandHandle {
         Ok(())
     }
 
-    pub async fn manager(
+    pub async fn invoke_manager(
         &self,
-        manager: String,
-        command: String,
+        name: String,
+        action: String,
+        params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, NetworkError> {
-        self.managers
-            .get(&manager)
+        let res = self
+            .managers
+            .get(&name)
             .unwrap()
-            .handle_command(&command)
-            .await
+            .invoke(&action, params)
+            .await?;
+        Ok(res)
+    }
+
+    pub fn get_managers(&self) -> Vec<String> {
+        self.managers.keys().cloned().collect()
+    }
+    pub fn get_local_peer_id(&self) -> PeerId {
+        self.client.local_peer_id()
     }
 }

@@ -2,7 +2,6 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
-#![feature(trait_upcasting)]
 mod chat_app;
 mod error;
 mod function;
@@ -55,7 +54,9 @@ async fn main() -> anyhow::Result<()> {
             handlers::new_group,
             handlers::subscribe,
             handlers::unsubscribe,
-            handlers::manager,
+            handlers::invoke_manager,
+            handlers::get_managers,
+            handlers::get_local_peer_id,
         ])
         .build(tauri::generate_context!())?;
 

@@ -104,7 +104,7 @@ pub fn new(secret_key_seed: Option<u8>) -> anyhow::Result<Network> {
         client: Client {
             sender: command_sender,
             local_peer_id: peer_id,
-            listeners: HashMap::new(),
+            listeners: Arc::new(Mutex::new(HashMap::new())),
             pending_new_group: Arc::new(Mutex::new(None)),
         },
         peer_id,
@@ -119,7 +119,7 @@ pub fn new(secret_key_seed: Option<u8>) -> anyhow::Result<Network> {
 pub struct Client {
     sender: mpsc::Sender<Command>,
     local_peer_id: PeerId,
-    pub listeners: HashMap<ListenerId, Vec<Multiaddr>>,
+    pub listeners: Arc<Mutex<HashMap<ListenerId, Vec<Multiaddr>>>>,
     pub pending_new_group: Arc<Mutex<Option<(GroupId, GroupInfo)>>>,
 }
 
@@ -230,14 +230,6 @@ impl Client {
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not to be dropped.")
     }
-    pub async fn listeners(&self) -> HashMap<ListenerId, Vec<Multiaddr>> {
-        let (sender, receiver) = oneshot::channel();
-        self.sender
-            .send(Command::Listeners { sender })
-            .await
-            .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not to be dropped.")
-    }
     pub async fn new_group(
         &self,
         group_id: GroupId,
@@ -255,7 +247,6 @@ pub struct EventLoop {
     event_sender: mpsc::Sender<InboundEvent>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), NetworkError>>>,
     pending_request_file: HashMap<RequestId, oneshot::Sender<Result<Response, NetworkError>>>,
-    listeners: HashMap<ListenerId, Vec<Multiaddr>>,
 }
 
 impl EventLoop {
@@ -270,7 +261,6 @@ impl EventLoop {
             event_sender,
             pending_dial: Default::default(),
             pending_request_file: Default::default(),
-            listeners: HashMap::new(),
         }
     }
 
@@ -370,7 +360,8 @@ impl EventLoop {
             )) => {}
             SwarmEvent::Behaviour(ComposedEvent::Mdns(event)) => match event {
                 mdns::Event::Discovered(list) => {
-                    for (peer_id, _) in list {
+                    for (peer_id, addr) in list {
+                        log::debug!("Discovered {:?} at {:?}", peer_id, addr);
                         self.swarm
                             .behaviour_mut()
                             .gossipsub
@@ -382,8 +373,8 @@ impl EventLoop {
                     }
                 }
                 mdns::Event::Expired(list) => {
-                    for (peer_id, multiaddr) in list {
-                        log::debug!("Expired {:?} at {:?}", peer_id, multiaddr);
+                    for (peer_id, addr) in list {
+                        log::debug!("Expired {:?} at {:?}", peer_id, addr);
 
                         self.swarm
                             .behaviour_mut()
@@ -527,11 +518,24 @@ impl EventLoop {
                     .swarm
                     .behaviour_mut()
                     .gossipsub
-                    .publish(topic, serde_json::to_vec(&group_message).unwrap());
+                    .publish(topic.clone(), serde_json::to_vec(&group_message).unwrap());
 
-                sender
-                    .send(res.map_err(Into::into))
-                    .expect("Receiver not to be dropped");
+                let res = match res {
+                    Ok(message_id) => {
+                        self.event_sender
+                            .send(InboundEvent::Message {
+                                message_id: message_id.clone(),
+                                topic: topic.hash(),
+                                message: group_message,
+                            })
+                            .await
+                            .unwrap();
+                        Ok(message_id)
+                    }
+                    Err(e) => Err(e.into()),
+                };
+
+                sender.send(res).expect("Receiver not to be dropped");
             }
             Command::Subscribe { topic, sender } => {
                 match self.swarm.behaviour_mut().gossipsub.subscribe(&topic) {
@@ -579,10 +583,6 @@ impl EventLoop {
                 let peers = self.swarm.connected_peers().cloned().collect();
                 let _ = sender.send(peers);
             }
-            Command::Listeners { sender } => {
-                let listeners = self.listeners.clone();
-                let _ = sender.send(listeners);
-            }
         }
     }
 }
@@ -626,8 +626,5 @@ enum Command {
     },
     ConnectedPeers {
         sender: oneshot::Sender<Vec<PeerId>>,
-    },
-    Listeners {
-        sender: oneshot::Sender<HashMap<ListenerId, Vec<Multiaddr>>>,
     },
 }

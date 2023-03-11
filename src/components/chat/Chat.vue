@@ -1,43 +1,48 @@
 <template>
   <div class="chat-layout" v-if="chatStatus === 'active'">
     <v-virtual-scroll
-      :items="groupStatus!.history"
+      :items="groupState!.history"
       item-key="timestamp"
-      height="0"
-      class="px-2"
+      class="px-2 flex-grow-1"
       id="scroll"
     >
       <template #default="{ item, index }">
-        <chat-message :self="local === item.source">
+        <chat-message
+          :user-info="users[item.source]"
+          :self="localPeerId === item.source"
+        >
           <chat-content :msg="item.message" />
         </chat-message>
       </template>
     </v-virtual-scroll>
-    <v-toolbar :elevation="8" class="px-4" color="background">
-      <v-text-field
-        variant="underlined"
-        v-model="message"
+    <div class="d-flex align-center px-2 pt-2 elevation-6">
+      <v-textarea
+        variant="filled"
         append-icon="mdi-send"
+        auto-grow
+        rows="1"
+        max-rows="6"
+        v-model="message"
         @click:append="onSendText"
       >
-      </v-text-field>
-    </v-toolbar>
+      </v-textarea>
+    </div>
   </div>
   <v-container
-    v-else-if="chatStatus === 'noactive'"
+    v-else-if="chatStatus === 'no-active'"
     class="h-100 d-flex justify-center align-center"
   >
     <v-icon icon="mdi-message-outline" size="150" color="grey" />
   </v-container>
   <v-container
-    v-else-if="chatStatus === 'nojoin'"
+    v-else-if="chatStatus === 'no-join'"
     class="h-100 d-flex flex-column justify-center align-center text-grey"
   >
     <v-icon icon="mdi-account-plus" size="150" />
     <v-btn variant="tonal" color="info" @click="onJoin">加入</v-btn>
   </v-container>
   <v-container
-    v-else-if="chatStatus === 'noother'"
+    v-else-if="chatStatus === 'no-other'"
     class="h-100 d-flex flex-column justify-center align-center text-grey"
   >
     <v-icon icon="mdi-account-voice" size="150" />
@@ -45,53 +50,39 @@
   </v-container>
 </template>
 <script setup lang="ts">
-import { listen } from "@tauri-apps/api/event";
 import { VVirtualScroll } from "vuetify/labs/VVirtualScroll";
-import {
-  getGroupStatus,
-  localPeerId,
-  publishText,
-  subscribe,
-} from "@/utils/backend";
-import { GroupId, GroupInfo, GroupMessage } from "@/utils/types";
+import { publishMessage, subscribe } from "@/utils/backend";
+import { GroupId } from "@/utils/types";
+import { useGlobal } from "@/states/global";
 const props = defineProps<{
   groupId: GroupId | null;
 }>();
+const global = useGlobal();
+const { localPeerId, groupStates, users } = storeToRefs(global);
 
-onMounted(async () => {
-  listen<[GroupId, GroupMessage]>("message", (event) => {
-    if (event.payload[0] === props.groupId) {
-      let message = event.payload[1];
-      groupStatus.value?.history.push(message);
-    }
-  });
-  listen<[GroupId, GroupInfo]>("group-update", (event) => {
-    if (event.payload[0] === props.groupId) {
-    }
-  });
+const groupState = computed(() => {
+  if (props.groupId) {
+    return groupStates.value[props.groupId];
+  }
+  return null;
 });
 
-let groupStatus = computedAsync(async () => {
-  if (!props.groupId) return null;
-  return await getGroupStatus(props.groupId);
-}, null);
-let local = useAsyncState(async () => await localPeerId(), null);
 const chatStatus = computed(() => {
-  if (!groupStatus.value || !local.state.value) {
-    return "noactive";
+  if (!groupState.value || !localPeerId.value) {
+    return "no-active";
   }
-  if (!groupStatus.value.subscribers.includes(local.state.value)) {
-    return "nojoin";
+  if (!groupState.value.subscribers.includes(localPeerId.value)) {
+    return "no-join";
   }
-  if (groupStatus.value.subscribers.length < 2) {
-    return "noother";
+  if (groupState.value.subscribers.length < 2) {
+    return "no-other";
   }
   return "active";
 });
 
 function onSendText() {
   if (message.value == "") return;
-  publishText(props.groupId!, message.value);
+  publishMessage(props.groupId!, { text: message.value });
   message.value = "";
 }
 function onJoin() {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use libp2p::{swarm::derive_prelude::ListenerId, Multiaddr};
+use libp2p::{swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
 
 use crate::{
     chat_app::app_command::AppCommandHandle,
@@ -83,10 +83,25 @@ pub async fn unsubscribe(
 }
 
 #[tauri::command]
-pub async fn manager(
+pub async fn invoke_manager(
     handle: tauri::State<'_, AppCommandHandle>,
-    manager: String,
-    command: String,
+    name: String,
+    action: String,
+    params: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, NetworkError> {
-    handle.manager(manager, command).await
+    handle.invoke_manager(name, action, params).await
+}
+
+#[tauri::command]
+pub fn get_managers(
+    handle: tauri::State<'_, AppCommandHandle>,
+) -> Result<Vec<String>, NetworkError> {
+    Ok(handle.get_managers())
+}
+
+#[tauri::command]
+pub fn get_local_peer_id(
+    handle: tauri::State<'_, AppCommandHandle>,
+) -> Result<PeerId, NetworkError> {
+    Ok(handle.get_local_peer_id())
 }

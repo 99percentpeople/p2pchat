@@ -53,13 +53,13 @@
           <v-list-item>
             <v-list-item-title>名称</v-list-item-title>
             <v-list-item-subtitle>
-              {{ groupItems.state.value[activedGroup!].name }}
+              {{ groups[activedGroup!].name }}
             </v-list-item-subtitle>
           </v-list-item>
-          <v-list-item v-if="groupItems.state.value[activedGroup!].description">
+          <v-list-item v-if="groups[activedGroup!].description">
             <v-list-item-title>描述</v-list-item-title>
             <v-list-item-subtitle>
-              {{ groupItems.state.value[activedGroup!].description }}
+              {{ groups[activedGroup!].description }}
             </v-list-item-subtitle>
           </v-list-item>
         </v-list>
@@ -75,20 +75,22 @@
 </template>
 
 <script setup lang="ts">
-import { getGroups, newGroup } from "../utils/backend";
+import { newGroup } from "../utils/backend";
 import { GroupId, GroupInfo } from "../utils/types";
 import { listen } from "@tauri-apps/api/event";
 import { Action } from "../utils/types";
+import { invoke } from "@tauri-apps/api";
+import { useGlobal } from "@/states/global";
 const emit = defineEmits<{
   (e: "update-actions", actions: Action[]): void;
   (e: "update-title", title: string): void;
 }>();
+const global = useGlobal();
+const { localPeerId, groups } = storeToRefs(global);
 let newGroupDialogVisible = ref(false);
 let groupInfoDialogVisible = ref(false);
 let activedGroup = ref<GroupId | null>(null);
-let groupItems = useAsyncState(async () => {
-  return await getGroups();
-}, {});
+
 let newGroupInfo = reactive<GroupInfo>({
   name: "",
   description: null,
@@ -114,6 +116,7 @@ let actions = computed<Action[]>(() => {
   }
   return acts;
 });
+
 watch(
   () => actions.value,
   (newActions) => {
@@ -121,11 +124,6 @@ watch(
   },
   { deep: true }
 );
-onMounted(() => {
-  listen<[GroupId, GroupInfo]>("group-update", async () => {
-    await groupItems.execute();
-  });
-});
 
 onActivated(() => {
   emit("update-actions", actions.value);
@@ -137,7 +135,7 @@ onDeactivated(() => {
 function onGroupSelected(active: GroupId) {
   activedGroup.value = active;
   if (activedGroup.value) {
-    emit("update-title", groupItems.state.value[activedGroup.value].name);
+    emit("update-title", groups.value[activedGroup.value].name);
   }
 }
 async function onNewGroup() {

@@ -2,7 +2,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::{
     error::NetworkError,
-    models::{GroupId, GroupInfo, GroupMessage, GroupState, UserInfo},
+    models::{GroupId, GroupInfo, GroupMessage, UserInfo},
 };
 use libp2p::{self, swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
 use tokio::sync::mpsc;
@@ -35,7 +35,6 @@ pub enum FrontendEvent {
     GroupUpdate {
         group_id: GroupId,
         group_info: GroupInfo,
-        group_state: GroupState,
     },
     UserUpdate {
         peer_id: PeerId,
@@ -85,13 +84,9 @@ impl FrontendEventLoop {
                     FrontendEvent::GroupUpdate {
                         group_id,
                         group_info,
-                        group_state,
                     } => {
-                        app.emit_all(
-                            &format!("group-update"),
-                            (group_id, group_info, group_state),
-                        )
-                        .unwrap();
+                        app.emit_all(&format!("group-update"), (group_id, group_info))
+                            .unwrap();
                     }
                     FrontendEvent::UserUpdate { peer_id, user_info } => {
                         app.emit_all(&format!("user-update"), (peer_id, user_info))

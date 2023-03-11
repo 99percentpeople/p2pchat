@@ -1,7 +1,10 @@
 <template>
   <div class="chat-row my-4" :class="self ? 'chat-row-self' : 'chat-row'">
-    <v-avatar size="40" v-if="!self">
-      <img src="https://cdn.vuetifyjs.com/images/lists/1.jpg" />
+    <v-avatar
+      size="40"
+      v-if="!self"
+      :image="userInfo.avatar ? userInfo.avatar : avatar"
+    >
     </v-avatar>
     <div
       class="rounded pa-1 text-white d-flex align-center justify-center text-body-1"
@@ -9,20 +12,28 @@
     >
       <slot></slot>
     </div>
-    <v-avatar size="40" v-if="self">
-      <img src="https://cdn.vuetifyjs.com/images/lists/1.jpg" />
+    <v-avatar
+      size="40"
+      v-if="self"
+      :image="userInfo.avatar ? userInfo.avatar : avatar"
+    >
     </v-avatar>
   </div>
 </template>
 <script setup lang="ts">
-withDefaults(
+import { UserInfo } from "@/utils/types";
+import avatar from "/avatar.webp";
+const props = withDefaults(
   defineProps<{
     self: boolean;
+    userInfo: UserInfo;
   }>(),
   {
     self: false,
   }
 );
+
+console.log(props.userInfo);
 </script>
 <style scoped lang="scss">
 @use "@/styles/settings.scss";

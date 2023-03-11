@@ -1,7 +1,7 @@
 use crate::{
     chat_app::{frontend::FrontendEvent, AppState},
     error::{ManagerError, NetworkError},
-    function::{AppManager, HandleCommand, HandleInboundEvent},
+    function::{AppManager, HandleInboundEvent, Invoke},
     models::{UserInfo, UserState},
     network::{
         message::{InboundEvent, Request, Response},
@@ -72,6 +72,9 @@ impl UserManager {
     pub async fn has_user(&self, peer_id: &PeerId) -> bool {
         self.users.lock().await.contains_key(peer_id)
     }
+    pub async fn get_users(&self) -> HashMap<PeerId, UserInfo> {
+        self.users.lock().await.clone()
+    }
 }
 
 #[async_trait]
@@ -79,7 +82,7 @@ impl HandleInboundEvent for UserManager {
     async fn handle_event(
         &mut self,
         event: InboundEvent,
-        mut client: Client,
+        client: Client,
         state: AppState,
         sender: mpsc::Sender<FrontendEvent>,
     ) -> Result<(), NetworkError> {
@@ -90,6 +93,15 @@ impl HandleInboundEvent for UserManager {
                         if let Some(channel) = channel.lock().await.take() {
                             client.response(Response::User(user_info), channel).await;
                         }
+                    } else if peer_id == client.local_peer_id() {
+                        if let Some(channel) = channel.lock().await.take() {
+                            client
+                                .response(
+                                    Response::User(state.local_user.lock().await.clone().into()),
+                                    channel,
+                                )
+                                .await;
+                        }
                     }
                 }
             }
@@ -97,13 +109,29 @@ impl HandleInboundEvent for UserManager {
                 if !self.has_user(&peer_id).await {
                     match client.request(peer_id, Request::User(peer_id)).await {
                         Ok(Response::User(user_info)) => {
-                            self.add_user(peer_id, user_info).await;
+                            self.add_user(peer_id, user_info.clone()).await;
+                            sender
+                                .send(FrontendEvent::UserUpdate { peer_id, user_info })
+                                .await
+                                .unwrap();
                         }
                         Ok(_) => log::warn!("Unexpected response"),
                         Err(err) => {
                             Err(err)?;
                         }
                     }
+                }
+            }
+            InboundEvent::PeerExpired { peer_id } => {
+                if self.has_user(&peer_id).await {
+                    self.change_user_status(&peer_id, UserState::Offline).await;
+                    sender
+                        .send(FrontendEvent::UserUpdate {
+                            peer_id,
+                            user_info: self.get_user_info(&peer_id).await.unwrap(),
+                        })
+                        .await
+                        .unwrap();
                 }
             }
             InboundEvent::Subscribed { peer_id, topic } => {
@@ -116,6 +144,13 @@ impl HandleInboundEvent for UserManager {
                     } else {
                         (peer_id, state.local_user.lock().await.clone().into())
                     };
+                    sender
+                        .send(FrontendEvent::UserUpdate {
+                            peer_id: peer_id.clone(),
+                            user_info: user_info.clone(),
+                        })
+                        .await
+                        .unwrap();
                     self.add_user(peer_id, user_info).await;
                 }
                 self.add_subscribe(peer_id, topic).await?;
@@ -131,10 +166,23 @@ impl HandleInboundEvent for UserManager {
 }
 
 #[async_trait]
-impl HandleCommand for UserManager {
-    async fn handle_command(&self, command: &str) -> Result<serde_json::Value, NetworkError> {
+impl Invoke for UserManager {
+    async fn invoke(
+        &self,
+        command: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, ManagerError> {
         let value = match command {
-            c => return Err(NetworkError::CommandNotFound(c.to_string())),
+            "get_user_info" if params.is_some() => {
+                let peer_id = serde_json::from_value::<PeerId>(params.unwrap())?;
+                serde_json::to_value(
+                    self.get_user_info(&peer_id)
+                        .await
+                        .ok_or(ManagerError::PeerNotExist(peer_id))?,
+                )?
+            }
+            "get_users" => serde_json::to_value(self.get_users().await)?,
+            c => return Err(ManagerError::InvalidAction(c.to_string())),
         };
         Ok(value)
     }

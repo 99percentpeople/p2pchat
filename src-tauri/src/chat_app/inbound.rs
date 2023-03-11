@@ -2,14 +2,17 @@ use std::collections::hash_map;
 
 use crate::{
     error::NetworkError,
-    function::HandleInboundEvent,
+    function::{AppManager, HandleInboundEvent},
     network::{
         message::{self, InboundEvent},
         Client,
     },
 };
 
-use futures::{future::try_join_all, FutureExt};
+use futures::{
+    future::{join_all, try_join_all},
+    FutureExt,
+};
 use tokio::sync::mpsc;
 
 use super::{frontend::FrontendEvent, AppState};
@@ -19,7 +22,7 @@ pub struct InboundEventLoop {
     pub(super) inbound_event_receiver: mpsc::Receiver<message::InboundEvent>,
     pub(super) frontend_sender: mpsc::Sender<FrontendEvent>,
     pub(super) state: AppState,
-    pub(super) managers: Vec<Box<dyn HandleInboundEvent + Send>>,
+    pub(super) managers: Vec<Box<dyn AppManager>>,
 }
 
 impl InboundEventLoop {
@@ -30,12 +33,17 @@ impl InboundEventLoop {
                 let client = self.client.clone();
                 let state = self.state.clone();
                 let sender = self.frontend_sender.clone();
-                async move { manager.handle_event(event, client, state, sender).await }.boxed()
+                async move {
+                    match manager.handle_event(event, client, state, sender).await {
+                        Ok(_) => {}
+                        Err(err) => {
+                            log::error!("{} manager occured an error: {}", manager.name(), err)
+                        }
+                    };
+                }
+                .boxed()
             });
-            match try_join_all(iter).await {
-                Ok(_) => {}
-                Err(err) => log::error!("{err}"),
-            }
+            join_all(iter).await;
             self.handle_event_default(event).await?;
         }
         Ok(())
@@ -55,6 +63,8 @@ impl InboundEventLoop {
                 let addresses = self
                     .client
                     .listeners
+                    .lock()
+                    .await
                     .entry(listener_id)
                     .and_modify(|e| e.push(address.clone()))
                     .or_default()
@@ -73,9 +83,8 @@ impl InboundEventLoop {
                 listener_id,
                 addresses,
             } => {
-                let e = self
-                    .client
-                    .listeners
+                let mut listeners = self.client.listeners.lock().await;
+                let e = listeners
                     .entry(listener_id)
                     .and_modify(|e| e.retain(|x| !addresses.contains(&x)));
 

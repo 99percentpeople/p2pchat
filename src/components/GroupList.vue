@@ -1,12 +1,8 @@
 <template>
-  <v-list
-    item-props
-    lines="two"
-    v-if="Object.keys(groups.state.value).length !== 0"
-  >
+  <v-list item-props lines="two" v-if="Object.keys(groups).length !== 0">
     <!-- <v-list-subheader>已加入</v-list-subheader> -->
     <v-list-item
-      v-for="(info, group) in groups.state.value"
+      v-for="(info, group) in groups"
       :title="info.name"
       :value="group"
       :key="group"
@@ -14,7 +10,7 @@
       @click="onSelect(group as string)"
     >
       <v-list-item-subtitle>
-        {{ lastMessage[group] }}
+        {{ getLastMessage(group as string) }}
       </v-list-item-subtitle>
     </v-list-item>
   </v-list>
@@ -46,10 +42,8 @@
   </v-container>
 </template>
 <script setup lang="ts">
-import { listen } from "@tauri-apps/api/event";
-import { computedAsync, useAsyncState } from "@vueuse/core";
-import { getGroupStatus, localPeerId, getGroups } from "@/utils/backend";
-import { GroupId, GroupInfo } from "@/utils/types";
+import { GroupId } from "@/utils/types";
+import { useGlobal } from "@/states/global";
 const emit = defineEmits<{
   (e: "select", value: GroupId): void;
 }>();
@@ -59,44 +53,15 @@ function onSelect(group: GroupId) {
   active.value = group;
   emit("select", active.value);
 }
-onBeforeMount(() => {
-  localPeerId().then((id) => {
-    localPeer.value = id;
-  });
-});
-onMounted(() => {
-  listen<[GroupId, GroupInfo]>("group-update", async (event) => {
-    let [group, info] = event.payload;
-    let newStatus = Object.defineProperty(
-      {
-        ...groups.state.value,
-      },
-      group,
-      {
-        value: info,
-        enumerable: true,
-      }
-    );
-    groups.state.value = newStatus;
-  });
-});
-let localPeer = ref("");
+const global = useGlobal();
 
-let groups = useAsyncState(async () => {
-  return await getGroups();
-}, {} as { [index: GroupId]: GroupInfo });
+const { groups, groupStates } = storeToRefs(global);
 
-let lastMessage = computedAsync<{ [index: GroupId]: string }>(async () => {
-  let result: { [index: string]: string } = {};
-  for (const group in groups.state.value) {
-    result[group] = await getLastMessage(group);
+function getLastMessage(groupId: GroupId): string {
+  let status = groupStates.value[groupId];
+  if (!status) {
+    return "加载中";
   }
-  return result;
-});
-
-async function getLastMessage(groupId: GroupId): Promise<string> {
-  let status = await getGroupStatus(groupId);
-
   if (status.history.length === 0) {
     return "暂无消息";
   }

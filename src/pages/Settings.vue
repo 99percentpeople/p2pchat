@@ -97,18 +97,6 @@ const listenStatus: {
 
 let unlisten: null | (() => void) = null;
 
-onMounted(async () => {
-  let addrs = await listeners();
-  console.log("addrs: ", addrs);
-  listenStatus.status = addrs.length !== 0;
-  listenStatus.listeners = addrs;
-  unlisten = await listen<string[]>("listen", (event) => {
-    console.log(event.payload);
-    listenStatus.status = event.payload.length !== 0;
-    listenStatus.listeners = event.payload;
-  });
-});
-
 onUnmounted(() => {
   unlisten?.();
 });

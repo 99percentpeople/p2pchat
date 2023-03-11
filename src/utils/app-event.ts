@@ -9,24 +9,12 @@ import {
   UserInfo,
 } from "./types";
 
-export class ChatApp {
+export class AppEvent {
   static async onGroupUpdate(
     callBackFn: (args: Event<[GroupId, GroupInfo]>) => void
   ) {
     try {
       return await listen<[GroupId, GroupInfo]>("group-update", callBackFn);
-    } catch (err) {
-      console.error(err);
-    }
-  }
-  static async onGroupStateUpdate(
-    callBackFn: (args: Event<[GroupId, GroupState]>) => void
-  ) {
-    try {
-      return await listen<[GroupId, GroupState]>(
-        "group-state-update",
-        callBackFn
-      );
     } catch (err) {
       console.error(err);
     }
@@ -49,11 +37,11 @@ export class ChatApp {
       console.error(err);
     }
   }
-  static async onSubscribe(
+  static async onSubscribed(
     callBackFn: (args: Event<[GroupId, PeerId]>) => void
   ) {
     try {
-      return await listen<[GroupId, PeerId]>("subscribe", callBackFn);
+      return await listen<[GroupId, PeerId]>("subscribed", callBackFn);
     } catch (err) {
       console.error(err);
     }

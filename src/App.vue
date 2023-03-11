@@ -105,7 +105,8 @@ onMounted(async () => {
       `Got error in window ${event.windowLabel}, payload: ${event.payload}`
     );
   });
-  if ((await listeners()).length === 0) {
+  let l = await listeners();
+  if (Object.keys(l).length === 0) {
     await startListen();
   }
 });

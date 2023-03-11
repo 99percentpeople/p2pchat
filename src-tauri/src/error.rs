@@ -84,10 +84,14 @@ impl Serialize for NetworkError {
     }
 }
 
-#[derive(Debug, Error, Serialize)]
+#[derive(Debug, Error)]
 pub enum ManagerError {
     #[error("Group not exist {0}")]
     GroupNotExist(GroupId),
     #[error("Peer not exist {0}")]
     PeerNotExist(PeerId),
+    #[error("invalid params: {0}")]
+    InvalidParams(#[from] serde_json::Error),
+    #[error("invalid action: {0}")]
+    InvalidAction(String),
 }

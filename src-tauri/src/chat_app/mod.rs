@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 use tauri::AppHandle;
 
 use crate::{
-    function::{AppManager, HandleCommand, HandleInboundEvent},
+    function::{AppManager, HandleInboundEvent, Invoke},
     managers::{group::GroupManager, user::UserManager},
     models::{LocalUserInfo, Setting},
     network::{self, EventLoop},
@@ -39,7 +39,7 @@ pub struct ChatApp {
     network_eventloop: Option<EventLoop>,
     inbound_eventloop: Option<InboundEventLoop>,
     frontend_eventloop: Option<FrontendEventLoop>,
-    managers: HashMap<String, Box<dyn HandleCommand + Send + Sync>>,
+    managers: HashMap<String, Box<dyn Invoke>>,
 }
 
 impl ChatApp {
@@ -54,6 +54,7 @@ impl ChatApp {
             managers: HashMap::new(),
         }
     }
+
     pub fn initialize(&mut self) -> anyhow::Result<()> {
         let network = network::new(None)?;
         self.client = Some(network.client.clone());
@@ -65,11 +66,11 @@ impl ChatApp {
         self.managers = [
             (
                 group.name().to_string(),
-                Box::new(group.clone()) as Box<dyn HandleCommand + Send + Sync>,
+                Box::new(group.clone()) as Box<dyn Invoke>,
             ),
             (
                 user.name().to_string(),
-                Box::new(user.clone()) as Box<dyn HandleCommand + Send + Sync>,
+                Box::new(user.clone()) as Box<dyn Invoke>,
             ),
         ]
         .into();
