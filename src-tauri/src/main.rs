@@ -4,7 +4,6 @@
 )]
 mod chat_app;
 mod error;
-mod function;
 mod handlers;
 mod managers;
 mod models;
@@ -45,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         })
         .invoke_handler(generate_handler![
-            handlers::listeners,
+            handlers::get_listeners,
             handlers::start_listen,
             handlers::stop_listen,
             handlers::setting,

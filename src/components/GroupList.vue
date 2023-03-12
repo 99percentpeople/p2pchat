@@ -43,7 +43,7 @@
 </template>
 <script setup lang="ts">
 import { GroupId } from "@/utils/types";
-import { useGlobal } from "@/states/global";
+import { useGroupState } from "@/states/group-state";
 const emit = defineEmits<{
   (e: "select", value: GroupId): void;
 }>();
@@ -53,9 +53,8 @@ function onSelect(group: GroupId) {
   active.value = group;
   emit("select", active.value);
 }
-const global = useGlobal();
 
-const { groups, groupStates } = storeToRefs(global);
+const { groups, groupStates } = storeToRefs(useGroupState());
 
 function getLastMessage(groupId: GroupId): string {
   let status = groupStates.value[groupId];

@@ -1,7 +1,7 @@
+use super::{AppManager, HandleInboundEvent, Invoke};
 use crate::{
-    chat_app::{frontend::FrontendEvent, AppState},
+    chat_app::{frontend_event::FrontendEvent, AppState},
     error::{ManagerError, NetworkError},
-    function::{AppManager, HandleInboundEvent, Invoke},
     models::{UserInfo, UserState},
     network::{
         message::{InboundEvent, Request, Response},

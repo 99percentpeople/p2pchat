@@ -71,7 +71,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { onBeforeRouteUpdate } from "vue-router";
 import { Action } from "./utils/types";
-import { listeners, startListen } from "./utils/backend";
+import { getListeners, startListen } from "./utils/backend";
 
 const topRoutes = computed(() =>
   router.options.routes.filter((route) => !route.meta?.bottom)
@@ -105,8 +105,7 @@ onMounted(async () => {
       `Got error in window ${event.windowLabel}, payload: ${event.payload}`
     );
   });
-  let l = await listeners();
-  if (Object.keys(l).length === 0) {
+  if (Object.keys(await getListeners()).length === 0) {
     await startListen();
   }
 });

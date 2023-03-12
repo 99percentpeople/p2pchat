@@ -32,9 +32,9 @@ export async function stopListen() {
   }
 }
 
-export async function listeners(): Promise<{ [index: number]: string[] }> {
+export async function getListeners(): Promise<{ [index: number]: string[] }> {
   try {
-    return await invoke<{ [index: number]: string[] }>("listeners");
+    return await invoke<{ [index: number]: string[] }>("get_listeners");
   } catch (err) {
     console.error(err);
     throw err;

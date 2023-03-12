@@ -55,9 +55,11 @@ export class AppEvent {
       console.error(err);
     }
   }
-  static async onListen(callBackFn: (args: Event<Multiaddr[]>) => void) {
+  static async onListen(
+    callBackFn: (args: Event<[number, Multiaddr[]]>) => void
+  ) {
     try {
-      return await listen<Multiaddr[]>("listen", callBackFn);
+      return await listen<[number, Multiaddr[]]>("listen", callBackFn);
     } catch (err) {
       console.error(err);
     }

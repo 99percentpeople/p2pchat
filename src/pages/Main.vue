@@ -80,13 +80,15 @@ import { GroupId, GroupInfo } from "../utils/types";
 import { listen } from "@tauri-apps/api/event";
 import { Action } from "../utils/types";
 import { invoke } from "@tauri-apps/api";
-import { useGlobal } from "@/states/global";
+import { useGroupState } from "@/states/group-state";
+import { useUserState } from "@/states/user-state";
 const emit = defineEmits<{
   (e: "update-actions", actions: Action[]): void;
   (e: "update-title", title: string): void;
 }>();
-const global = useGlobal();
-const { localPeerId, groups } = storeToRefs(global);
+
+const { groups } = storeToRefs(useGroupState());
+const { localPeerId } = storeToRefs(useUserState());
 let newGroupDialogVisible = ref(false);
 let groupInfoDialogVisible = ref(false);
 let activedGroup = ref<GroupId | null>(null);

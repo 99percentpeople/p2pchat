@@ -32,6 +32,9 @@
       </v-list-item>
       <v-divider></v-divider>
       <v-list-subheader>监听设置</v-list-subheader>
+      <v-list-item>
+        <p v-for="addr in addrs">{{ addr }}</p>
+      </v-list-item>
     </v-list>
   </v-layout>
 </template>
@@ -41,17 +44,14 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/api/dialog";
 import { downloadDir } from "@tauri-apps/api/path";
 import { useTheme } from "vuetify";
-import {
-  startListen,
-  stopListen,
-  listeners,
-  loadSetting,
-  saveSetting,
-} from "../utils/backend";
-
+import { loadSetting, saveSetting } from "../utils/backend";
+import { useSettingState } from "@/states/setting-state";
+const { listeners } = storeToRefs(useSettingState());
 const theme = useTheme();
 const isDark = computed(() => theme.global.name.value === "dark");
-
+const addrs = computed(() => {
+  return Object.values(listeners.value).flat();
+});
 const toggleTheme = () =>
   (theme.global.name.value = theme.global.current.value.dark
     ? "light"

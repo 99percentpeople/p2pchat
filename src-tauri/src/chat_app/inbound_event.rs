@@ -2,7 +2,7 @@ use std::collections::hash_map;
 
 use crate::{
     error::NetworkError,
-    function::{AppManager, HandleInboundEvent},
+    managers::{AppManager, HandleInboundEvent},
     network::{
         message::{self, InboundEvent},
         Client,
@@ -15,7 +15,7 @@ use futures::{
 };
 use tokio::sync::mpsc;
 
-use super::{frontend::FrontendEvent, AppState};
+use super::{frontend_event::FrontendEvent, AppState};
 
 pub struct InboundEventLoop {
     pub(super) client: Client,

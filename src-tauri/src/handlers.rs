@@ -10,11 +10,11 @@ use crate::{
 };
 
 #[tauri::command]
-pub async fn listeners(
+pub async fn get_listeners(
     handle: tauri::State<'_, AppCommandHandle>,
 ) -> Result<HashMap<u64, Vec<Multiaddr>>, String> {
     let listeners = handle
-        .listeners()
+        .get_listeners()
         .await
         .into_iter()
         .map(|(k, v)| (unsafe { std::mem::transmute::<ListenerId, u64>(k) }, v))

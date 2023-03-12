@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 
 use super::AppState;
+use super::Invoke;
 use crate::{
     error::NetworkError,
-    function::Invoke,
     models::{GroupId, GroupInfo, Setting},
     network::{message::Message, Client},
 };
 use libp2p::{self, multiaddr::Protocol, swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
-
 #[derive(Clone)]
 pub struct AppCommandHandle {
     pub(crate) client: Client,
@@ -17,7 +16,7 @@ pub struct AppCommandHandle {
 }
 
 impl AppCommandHandle {
-    pub async fn listeners(&self) -> HashMap<ListenerId, Vec<Multiaddr>> {
+    pub async fn get_listeners(&self) -> HashMap<ListenerId, Vec<Multiaddr>> {
         self.client.listeners.lock().await.clone()
     }
     pub async fn start_listen(

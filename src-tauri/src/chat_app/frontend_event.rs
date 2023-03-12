@@ -54,7 +54,7 @@ impl FrontendEventLoop {
                         addresses: listen_addr,
                     } => {
                         app.emit_all(
-                            "start-listen",
+                            "listen",
                             (
                                 unsafe { std::mem::transmute::<ListenerId, u64>(listener_id) },
                                 listen_addr,

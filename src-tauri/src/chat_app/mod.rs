@@ -2,8 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 use tauri::AppHandle;
 
 use crate::{
-    function::{AppManager, HandleInboundEvent, Invoke},
-    managers::{group::GroupManager, user::UserManager},
+    managers::{group::GroupManager, user::UserManager, AppManager, Invoke},
     models::{LocalUserInfo, Setting},
     network::{self, EventLoop},
 };
@@ -13,10 +12,13 @@ use tokio::{
 };
 
 pub mod app_command;
-pub mod frontend;
-pub mod inbound;
+pub mod frontend_event;
+pub mod inbound_event;
 
-use self::{app_command::AppCommandHandle, frontend::FrontendEventLoop, inbound::InboundEventLoop};
+use self::{
+    app_command::AppCommandHandle, frontend_event::FrontendEventLoop,
+    inbound_event::InboundEventLoop,
+};
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub(super) setting: Arc<Mutex<Setting>>,

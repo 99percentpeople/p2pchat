@@ -2,7 +2,7 @@
   <v-system-bar
     window
     data-tauri-drag-region
-    class="titlebar"
+    class="titlebar px-0"
     color="primary-darken-1"
   >
     <div class="titlebar-title">
