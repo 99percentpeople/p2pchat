@@ -12,7 +12,7 @@
           v-for="route in topRoutes"
           :key="route.name"
           :prepend-icon="route.meta?.icon"
-          :title="title"
+          :title="route.meta?.title"
           :value="route.name"
           @click="$router.push({ name: route.name })"
           :active="route.name === $router.currentRoute.value.name"
@@ -70,14 +70,8 @@
 <script setup lang="ts">
 import { listen } from "@tauri-apps/api/event";
 import { onBeforeRouteUpdate } from "vue-router";
-
-import {
-  Group,
-  GroupInfo,
-  groups,
-  listeners,
-  startListen,
-} from "./utils/backend";
+import { Action } from "./utils/types";
+import { getListeners, startListen } from "./utils/backend";
 
 const topRoutes = computed(() =>
   router.options.routes.filter((route) => !route.meta?.bottom)
@@ -87,38 +81,33 @@ const bottomRoutes = computed(() =>
 );
 const route = useRoute();
 const router = useRouter();
-let title = $ref<string>(route.meta.title);
+let title = ref<string>(route.meta.title);
 router.afterEach((to) => {
-  title = to.meta.title;
+  title.value = to.meta.title;
 });
 
-let rail = $ref(true);
-let drawer = $ref(true);
+let rail = ref(true);
+let drawer = ref(true);
 
-let actions = $ref<any>();
+let actions = ref<Action[]>();
 
-function onUpdateActions(acts: any) {
-  actions = acts;
+function onUpdateActions(acts: Action[]) {
+  actions.value = acts;
 }
 function onUpdateTitle(newTitle: string) {
-  title = newTitle;
+  title.value = newTitle;
 }
 let unlisten: null | (() => void) = null;
-const groupsList = reactive<{ [index: Group]: GroupInfo }>({});
+
 onMounted(async () => {
   unlisten = await listen<string>("error", (event) => {
     console.error(
       `Got error in window ${event.windowLabel}, payload: ${event.payload}`
     );
   });
-  if ((await listeners()).length === 0) {
+  if (Object.keys(await getListeners()).length === 0) {
     await startListen();
   }
-  // clean groupsList
-  for (let group in groupsList) {
-    delete groupsList[group];
-  }
-  Object.assign(groupsList, await groups());
 });
 
 onUnmounted(() => {

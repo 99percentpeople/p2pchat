@@ -1,37 +1,15 @@
 import { invoke } from "@tauri-apps/api";
-
-export type FileInfo = {
-  name: string;
-  size: number;
-  createTime?: Date;
-  modifyTime?: Date;
-};
-export type FileSource = {
-  local?: string;
-  remote?: string;
-};
-export type Setting = {
-  recvPath: string;
-};
-
-export type Group = string;
-
-export type GroupMessage = {
-  message: Message;
-  timestamp: Date;
-  source?: string;
-};
-
-export type Message = {
-  text?: string;
-  file?: FileInfo;
-};
-
-export type GroupInfo = {
-  name: string;
-  history: GroupMessage[];
-  subscribers: string[];
-};
+import {
+  FileInfo,
+  GroupId,
+  GroupInfo,
+  GroupMessage,
+  GroupState,
+  Message,
+  PeerId,
+  Setting,
+  UserInfo,
+} from "./types";
 
 export async function startListen(listenAddr?: string) {
   try {
@@ -43,7 +21,9 @@ export async function startListen(listenAddr?: string) {
     throw err;
   }
 }
-
+export async function getLocalPeerId(): Promise<string> {
+  return await invoke<PeerId>("get_local_peer_id");
+}
 export async function stopListen() {
   try {
     await invoke("stop_listen");
@@ -52,10 +32,9 @@ export async function stopListen() {
   }
 }
 
-export async function listeners(): Promise<string[]> {
+export async function getListeners(): Promise<{ [index: number]: string[] }> {
   try {
-    let listenAddr = await invoke<string[]>("listeners");
-    return listenAddr;
+    return await invoke<{ [index: number]: string[] }>("get_listeners");
   } catch (err) {
     console.error(err);
     throw err;
@@ -139,35 +118,49 @@ export async function dial(addr: string) {
   }
 }
 
-export async function publish(
-  group: Group,
+export async function publishMessage(
+  groupId: GroupId,
   message: Message
-): Promise<GroupMessage> {
+): Promise<void> {
   try {
-    return await invoke("publish", { group, message });
+    await invoke("publish_message", { groupId, message });
   } catch (err) {
     console.error(err);
     throw err;
   }
 }
 
-export async function subscribe(group: Group): Promise<GroupInfo> {
+export async function subscribe(groupId: GroupId) {
   try {
-    return await invoke("subscribe", { group });
+    await invoke("subscribe", { groupId });
   } catch (err) {
     console.error(err);
     throw err;
   }
 }
 
-export async function groups(): Promise<{ [index: string]: GroupInfo }> {
-  return await invoke<{ [index: string]: GroupInfo }>("groups");
+export async function getGroups(): Promise<{ [index: GroupId]: GroupInfo }> {
+  return await invoke<{ [index: GroupId]: GroupInfo }>("invoke_manager", {
+    name: "group",
+    action: "get_groups",
+  });
 }
 
-export async function newGroup(groupName: string): Promise<[Group, GroupInfo]> {
-  return await invoke<[Group, GroupInfo]>("new_group", { groupName });
+export async function newGroup(groupInfo: GroupInfo): Promise<GroupId> {
+  return await invoke<GroupId>("new_group", { groupInfo });
 }
 
-export async function localPeerId(): Promise<string> {
-  return await invoke<string>("local_peer_id");
+export async function getGroupState(groupId: GroupId): Promise<GroupState> {
+  return await invoke<GroupState>("invoke_manager", {
+    name: "group",
+    action: "get_group_state",
+    params: groupId,
+  });
+}
+
+export async function getUsers(): Promise<{ [index: PeerId]: UserInfo }> {
+  return await invoke<{ [index: PeerId]: UserInfo }>("invoke_manager", {
+    name: "user",
+    action: "get_users",
+  });
 }

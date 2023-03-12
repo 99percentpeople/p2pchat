@@ -10,7 +10,18 @@ import "./styles/main.scss";
 const vuetify = createVuetify({
   theme: {
     defaultTheme: "light",
+    variations: {
+      colors: ["primary", "secondary"],
+      lighten: 2,
+      darken: 2,
+    },
+    themes: {},
   },
 });
+const pinia = createPinia();
+const app = createApp(App);
 
-createApp(App).use(vuetify).use(router).use(createPinia()).mount("#app");
+app.use(vuetify);
+app.use(router);
+app.use(pinia);
+app.mount("#app");

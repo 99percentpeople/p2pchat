@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use derive_more::From;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use libp2p::{
-    core::upgrade::{read_length_prefixed, write_length_prefixed},
+    core::upgrade::{read_length_prefixed, read_varint, write_length_prefixed, write_varint},
     gossipsub::{Gossipsub, GossipsubEvent, TopicHash},
     mdns,
     request_response::{ProtocolName, RequestResponse, RequestResponseCodec, RequestResponseEvent},
@@ -28,7 +28,6 @@ pub enum ComposedEvent {
     KeepAlive(void::Void),
 }
 // Simple file exchange protocol
-
 #[derive(Debug, Clone)]
 pub struct FileExchangeProtocol();
 #[derive(Clone)]
@@ -36,11 +35,10 @@ pub struct FileExchangeCodec();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRequest(pub Request);
-// #[derive(Debug, Clone, PartialEq, Eq)]
 
 impl ProtocolName for FileExchangeProtocol {
     fn protocol_name(&self) -> &[u8] {
-        "/file-exchange/1".as_bytes()
+        "/information-exchange/1".as_bytes()
     }
 }
 
@@ -81,6 +79,10 @@ impl RequestResponseCodec for FileExchangeCodec {
                     TopicHash::from_raw(std::str::from_utf8(&data[space_pos + 1..]).unwrap());
                 Ok(FileRequest(Request::Group(topic_hash)))
             }
+            "/user" => serde_json::from_slice(&data[space_pos + 1..]).map_or_else(
+                |err| Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string())),
+                |peer| Ok(FileRequest(Request::User(peer))),
+            ),
             err => Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string())),
         }
     }
@@ -109,6 +111,10 @@ impl RequestResponseCodec for FileExchangeCodec {
                 io::ErrorKind::InvalidData,
                 std::str::from_utf8(&data[space_pos + 1..]).unwrap(),
             )),
+            "/user" => serde_json::from_slice(&data[space_pos + 1..]).map_or_else(
+                |err| Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string())),
+                |peer| Ok(FileResponse(Response::User(peer))),
+            ),
             _ => Err(io::ErrorKind::InvalidData.into()),
         }
     }
@@ -125,9 +131,13 @@ impl RequestResponseCodec for FileExchangeCodec {
         let req = match data {
             Request::File(file) => {
                 let data = serde_json::to_vec(&file).unwrap();
-                [b"/file ".to_vec(), data].concat()
+                [b"/file ", data.as_slice()].concat()
             }
             Request::Group(topic_hash) => [b"/group ", topic_hash.as_str().as_bytes()].concat(),
+            Request::User(peer) => {
+                let data = serde_json::to_vec(&peer).unwrap();
+                [b"/user ", data.as_slice()].concat()
+            }
         };
         write_length_prefixed(io, req).await?;
         io.close().await?;
@@ -148,6 +158,9 @@ impl RequestResponseCodec for FileExchangeCodec {
             Response::File(data) => [b"/file ", data.as_slice()].concat(),
             Response::Group(pair) => {
                 [b"/group ", serde_json::to_vec(&pair).unwrap().as_slice()].concat()
+            }
+            Response::User(user) => {
+                [b"/user ", serde_json::to_vec(&user).unwrap().as_slice()].concat()
             }
         };
         write_length_prefixed(io, resp_data).await?;

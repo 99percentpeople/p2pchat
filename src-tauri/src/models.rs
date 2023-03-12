@@ -1,9 +1,14 @@
-use chrono::{DateTime, Utc};
+use crate::{
+    error::{SettingError, SettingErrorKind},
+    network::message::Message,
+};
+use chrono::Utc;
+use derive_more::Display;
 use libp2p::{gossipsub::Sha256Topic, PeerId};
 use mediatype::MediaTypeBuf;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     hash::Hash,
     path::{Path, PathBuf},
 };
@@ -11,12 +16,8 @@ use tokio::{
     fs,
     io::{self, AsyncReadExt, AsyncWriteExt},
 };
+use url::Url;
 use uuid::Uuid;
-
-use crate::{
-    error::{SettingError, SettingErrorKind},
-    network::message::Message,
-};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +25,7 @@ pub struct FileInfo {
     pub name: String,
     pub size: u64,
     pub file_type: Option<MediaTypeBuf>,
+    pub hash: Option<String>,
 }
 
 impl PartialEq for FileInfo {
@@ -55,6 +57,7 @@ impl FileInfo {
                 .to_string(),
             size: data.len(),
             file_type,
+            hash: None,
         })
     }
 }
@@ -63,6 +66,7 @@ impl FileInfo {
 #[serde(rename_all = "camelCase")]
 pub struct Setting {
     pub recv_path: PathBuf,
+    pub user_info: UserInfo,
 }
 
 impl Setting {
@@ -106,61 +110,50 @@ impl Default for Setting {
     fn default() -> Self {
         Self {
             recv_path: dirs::desktop_dir().unwrap_or_else(|| PathBuf::from(".")),
+            user_info: UserInfo::default(),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Display, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
-pub struct Group(Uuid);
+pub struct GroupId(Uuid);
 
-impl Group {
-    pub fn new(name: String) -> (Self, GroupInfo) {
-        (Self(Uuid::new_v4()), GroupInfo::new(name))
+impl GroupId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
     }
 
     pub fn topic(&self) -> Sha256Topic {
         Sha256Topic::new(self.0.to_string())
     }
 }
+impl AsRef<GroupId> for &GroupId {
+    fn as_ref(&self) -> &GroupId {
+        &self
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupInfo {
     pub name: String,
-    pub history: Vec<GroupMessage>,
-    pub subscribers: HashSet<PeerId>,
-}
-
-impl GroupInfo {
-    pub fn contains_peer(&self, peer_id: &PeerId) -> bool {
-        self.subscribers.contains(peer_id)
-    }
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupMessage {
-    pub source: Option<PeerId>,
-    pub timestamp: DateTime<Utc>,
+    pub source: PeerId,
+    pub timestamp: i64,
     pub message: Message,
 }
 
 impl GroupMessage {
-    pub fn new(message: Message, source: Option<PeerId>) -> Self {
+    pub fn new(message: Message, source: PeerId) -> Self {
         Self {
             source,
-            timestamp: Utc::now(),
+            timestamp: Utc::now().timestamp(),
             message,
-        }
-    }
-}
-
-impl GroupInfo {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            history: vec![],
-            subscribers: HashSet::new(),
         }
     }
 }
@@ -180,12 +173,80 @@ impl FileSource {
     }
 }
 
-pub struct UserInfo {
-    name: String,
-    avatar: Option<MediaTypeBuf>,
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum UserState {
+    #[default]
+    Online,
+    Offline,
 }
 
-pub struct GroupStatus {
-    history: Vec<GroupMessage>,
-    subscribers: HashMap<PeerId, UserInfo>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalUserInfo {
+    pub peer_id: Option<PeerId>,
+    pub name: String,
+    pub avatar: Option<Url>,
+}
+
+impl From<LocalUserInfo> for UserInfo {
+    fn from(info: LocalUserInfo) -> Self {
+        Self {
+            name: info.name,
+            avatar: info.avatar,
+            status: UserState::Online,
+        }
+    }
+}
+
+impl Default for LocalUserInfo {
+    fn default() -> Self {
+        Self {
+            peer_id: None,
+            name: "Anonymous".to_string(),
+            avatar: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub name: String,
+    pub avatar: Option<Url>,
+    #[serde(skip_deserializing)]
+    pub status: UserState,
+}
+
+impl UserInfo {
+    pub fn new(name: String, avatar: Option<Url>) -> Self {
+        Self {
+            name,
+            avatar,
+            status: UserState::Online,
+        }
+    }
+}
+
+impl Default for UserInfo {
+    fn default() -> Self {
+        Self {
+            name: "Anonymous".to_string(),
+            avatar: None,
+            status: UserState::Online,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupState {
+    pub history: Vec<GroupMessage>,
+    pub subscribers: HashSet<PeerId>,
+}
+
+impl GroupState {
+    pub fn new() -> Self {
+        Self {
+            history: Vec::new(),
+            subscribers: HashSet::new(),
+        }
+    }
 }

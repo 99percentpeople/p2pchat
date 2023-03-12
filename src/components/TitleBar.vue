@@ -2,7 +2,7 @@
   <v-system-bar
     window
     data-tauri-drag-region
-    class="titlebar"
+    class="titlebar px-0"
     color="primary-darken-1"
   >
     <div class="titlebar-title">
@@ -52,18 +52,18 @@
 <script setup lang="ts">
 import { appWindow } from "@tauri-apps/api/window";
 
-let appName = $ref(appWindow.label);
+let appName = ref(appWindow.label);
 
-let input = $ref("");
-let maximizeIcon = $ref("mdi-window-maximize");
+let input = ref("");
+let maximizeIcon = ref("mdi-window-maximize");
 
 let unlisten: null | (() => void) = null;
 onMounted(async () => {
   unlisten = await appWindow.onResized(async () => {
     if (await appWindow.isMaximized()) {
-      maximizeIcon = "mdi-dock-window";
+      maximizeIcon.value = "mdi-dock-window";
     } else {
-      maximizeIcon = "mdi-window-maximize";
+      maximizeIcon.value = "mdi-window-maximize";
     }
   });
 });

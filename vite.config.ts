@@ -4,6 +4,7 @@ import AutoImport from "unplugin-auto-import/vite";
 import Components from "unplugin-vue-components/vite";
 import { Vuetify3Resolver } from "unplugin-vue-components/resolvers";
 import vuetify from "vite-plugin-vuetify";
+import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -22,13 +23,18 @@ export default defineConfig({
     // produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_DEBUG,
   },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   plugins: [
-    vue({ reactivityTransform: true }),
+    vue({}),
     vuetify({ styles: { configFile: "./src/styles/settings.scss" } }),
     AutoImport({
       dts: "./src/auto-imports.d.ts",
       dirs: ["./src/pages", "./src/components"],
-      imports: ["vue", "vue-router", "pinia"],
+      imports: ["vue", "vue-router", "pinia", "@vueuse/core"],
       resolvers: [],
     }),
     Components({

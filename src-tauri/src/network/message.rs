@@ -1,12 +1,14 @@
 use libp2p::{
-    gossipsub::{GossipsubMessage, MessageId, TopicHash},
+    gossipsub::{MessageId, TopicHash},
     request_response::ResponseChannel,
     swarm::derive_prelude::ListenerId,
     Multiaddr, PeerId,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-use crate::models::{FileInfo, Group, GroupInfo};
+use crate::models::{FileInfo, GroupId, GroupInfo, GroupMessage, UserInfo};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -15,16 +17,16 @@ pub enum Message {
     File(FileInfo),
 }
 
-#[derive(Debug)]
-pub enum Event {
+#[derive(Debug, Clone)]
+pub enum InboundEvent {
     InboundRequest {
         request: Request,
-        channel: ResponseChannel<FileResponse>,
+        channel: Arc<Mutex<Option<ResponseChannel<FileResponse>>>>,
     },
-    InboundMessage {
-        propagation_source: PeerId,
+    Message {
         message_id: MessageId,
-        message: GossipsubMessage,
+        topic: TopicHash,
+        message: GroupMessage,
     },
     Subscribed {
         peer_id: PeerId,
@@ -37,9 +39,12 @@ pub enum Event {
     PeerDiscovered {
         peer_id: PeerId,
     },
+    PeerExpired {
+        peer_id: PeerId,
+    },
     NewListenAddr {
-        address: Multiaddr,
         listener_id: ListenerId,
+        address: Multiaddr,
     },
     ListenerClosed {
         listener_id: ListenerId,
@@ -51,26 +56,14 @@ pub enum Event {
 pub enum Request {
     File(FileInfo),
     Group(TopicHash),
+    User(PeerId),
 }
 
 #[derive(Debug, Clone)]
 pub enum Response {
     File(Vec<u8>),
-    Group((Group, GroupInfo)),
+    Group((GroupId, GroupInfo)),
+    User(UserInfo),
 }
-// #[derive(Debug, Clone, PartialEq, Eq, Error)]
-// pub enum ResponseError {
-//     #[error("File not found: {0}")]
-//     NotFoundError(String),
-// }
-// impl From<io::Error> for ResponseError {
-//     fn from(value: io::Error) -> Self {
-//         match value.kind() {
-//             io::ErrorKind::NotFound => ResponseError::NotFoundError(value.to_string()),
-//             _ => panic!("Unexpected error: {}", value),
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub struct FileResponse(pub Response);

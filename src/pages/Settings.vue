@@ -32,6 +32,9 @@
       </v-list-item>
       <v-divider></v-divider>
       <v-list-subheader>监听设置</v-list-subheader>
+      <v-list-item>
+        <p v-for="addr in addrs">{{ addr }}</p>
+      </v-list-item>
     </v-list>
   </v-layout>
 </template>
@@ -40,20 +43,15 @@
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/api/dialog";
 import { downloadDir } from "@tauri-apps/api/path";
-import { useToggle } from "@vueuse/core";
-import { useUISettings } from "../states/setting-state";
 import { useTheme } from "vuetify";
-import {
-  startListen,
-  stopListen,
-  listeners,
-  loadSetting,
-  saveSetting,
-} from "../utils/backend";
-
+import { loadSetting, saveSetting } from "../utils/backend";
+import { useSettingState } from "@/states/setting-state";
+const { listeners } = storeToRefs(useSettingState());
 const theme = useTheme();
-const isDark = $computed(() => theme.global.name.value === "dark");
-
+const isDark = computed(() => theme.global.name.value === "dark");
+const addrs = computed(() => {
+  return Object.values(listeners.value).flat();
+});
 const toggleTheme = () =>
   (theme.global.name.value = theme.global.current.value.dark
     ? "light"
@@ -89,10 +87,6 @@ async function onLoad() {
   Object.assign(setting, await loadSetting());
 }
 
-const toggleDark = useToggle(isDark);
-// function toggleDark(event: any) {
-//   console.log(event.returnValue);
-// }
 const listenStatus: {
   status: boolean;
   listeners: string[];
@@ -102,18 +96,6 @@ const listenStatus: {
 });
 
 let unlisten: null | (() => void) = null;
-
-onMounted(async () => {
-  let addrs = await listeners();
-  console.log("addrs: ", addrs);
-  listenStatus.status = addrs.length !== 0;
-  listenStatus.listeners = addrs;
-  unlisten = await listen<string[]>("listen", (event) => {
-    console.log(event.payload);
-    listenStatus.status = event.payload.length !== 0;
-    listenStatus.listeners = event.payload;
-  });
-});
 
 onUnmounted(() => {
   unlisten?.();

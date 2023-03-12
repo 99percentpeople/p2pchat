@@ -1,7 +1,6 @@
 <template>
   <div class="chat-row my-4" :class="self ? 'chat-row-self' : 'chat-row'">
-    <v-avatar size="40" v-if="!self">
-      <img src="https://cdn.vuetifyjs.com/images/lists/1.jpg" />
+    <v-avatar size="40" v-if="!self" :image="userInfo.avatar ?? defaultAvatar">
     </v-avatar>
     <div
       class="rounded pa-1 text-white d-flex align-center justify-center text-body-1"
@@ -9,23 +8,25 @@
     >
       <slot></slot>
     </div>
-    <v-avatar size="40" v-if="self">
-      <img src="https://cdn.vuetifyjs.com/images/lists/1.jpg" />
+    <v-avatar size="40" v-if="self" :image="userInfo.avatar ?? defaultAvatar">
     </v-avatar>
   </div>
 </template>
 <script setup lang="ts">
-withDefaults(
-  defineProps<{
-    self: boolean;
-  }>(),
-  {
-    self: false,
-  }
-);
+import { PeerId, UserInfo } from "@/utils/types";
+import defaultAvatar from "/avatar.webp";
+import { useUserState } from "@/states/user-state";
+const { localPeerId } = storeToRefs(useUserState());
+const props = defineProps<{
+  peerId: PeerId;
+  userInfo: UserInfo;
+}>();
+const self = computed(() => {
+  return props.peerId === localPeerId.value;
+});
 </script>
 <style scoped lang="scss">
-@use "../../styles/settings.scss";
+@use "@/styles/settings.scss";
 .chat-bubble {
   max-width: 60%;
   position: relative;

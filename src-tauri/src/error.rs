@@ -4,10 +4,12 @@ use libp2p::{
     gossipsub::error::{PublishError, SubscriptionError},
     request_response::OutboundFailure,
     swarm::DialError,
-    TransportError,
+    PeerId, TransportError,
 };
 use serde::Serialize;
 use thiserror::Error;
+
+use crate::models::GroupId;
 
 #[derive(Debug, Error, Serialize)]
 pub enum SettingErrorKind {
@@ -53,17 +55,23 @@ pub enum NetworkError {
     PublishError(#[from] PublishError),
     #[error(transparent)]
     SubscriptionError(#[from] SubscriptionError),
-    #[error("Request file error: {0}")]
-    RequestFileError(String),
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    #[error("Request error: {0}")]
+    RequestError(String),
     #[error(transparent)]
     SettingError(#[from] SettingError),
+    #[error("Manager error: {0}")]
+    ManagerError(#[from] ManagerError),
+    #[error("invalid address: {0}")]
+    InvalidAddress(String),
+    #[error("command not found: {0}")]
+    CommandNotFound(String),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 impl From<OutboundFailure> for NetworkError {
     fn from(value: OutboundFailure) -> Self {
-        Self::RequestFileError(value.to_string())
+        Self::RequestError(value.to_string())
     }
 }
 
@@ -74,4 +82,16 @@ impl Serialize for NetworkError {
     {
         serializer.serialize_str(self.to_string().as_str())
     }
+}
+
+#[derive(Debug, Error)]
+pub enum ManagerError {
+    #[error("Group not exist {0}")]
+    GroupNotExist(GroupId),
+    #[error("Peer not exist {0}")]
+    PeerNotExist(PeerId),
+    #[error("invalid params: {0}")]
+    InvalidParams(#[from] serde_json::Error),
+    #[error("invalid action: {0}")]
+    InvalidAction(String),
 }
