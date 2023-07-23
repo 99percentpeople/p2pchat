@@ -17,12 +17,12 @@ tauri-build = { version = "1.2.1", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.2.4", features = ["api-all"] }
-tokio = { version = "1.20.1", features = ["full"] }
-window-vibrancy = { version = "0.3.2" }
+tauri = { version = "1.4.1", features = ["api-all"] }
+tokio = { version = "1.29.1", features = ["full"] }
+window-vibrancy = { version = "0.4.0" }
 window-shadows = { version = "0.2.1" }
 anyhow = { version = "1.0.61" }
-libp2p = { version = "0.50.0", features = ["tokio", "full"] }
+libp2p = { version = "0.52.1", features = ["tokio", "full"] }
 env_logger = "0.10.0"
 futures = "0.3.25"
 async-trait = "0.1.61"
@@ -31,7 +31,7 @@ log = "0.4.17"
 thiserror = "1.0.38"
 derive_more = "0.99.17"
 chrono = { version = "0.4.23", features = ["serde"] }
-dirs = "4.0.0"
+dirs = "5.0.1"
 void = "1.0.2"
 mime_guess = "2.0.4"
 mediatype = { version = "0.19.13", features = ["serde"] }

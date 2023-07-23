@@ -24,7 +24,6 @@ pub enum InboundEvent {
         channel: Arc<Mutex<Option<ResponseChannel<FileResponse>>>>,
     },
     Message {
-        message_id: MessageId,
         topic: TopicHash,
         message: GroupMessage,
     },

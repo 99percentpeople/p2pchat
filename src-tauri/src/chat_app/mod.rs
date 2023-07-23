@@ -35,7 +35,7 @@ impl Default for AppState {
 }
 
 pub struct ChatApp {
-    pub app: AppHandle,
+    app_handle: AppHandle,
     pub state: AppState,
     pub client: Option<network::Client>,
     network_eventloop: Option<EventLoop>,
@@ -45,9 +45,9 @@ pub struct ChatApp {
 }
 
 impl ChatApp {
-    pub fn new(app: AppHandle) -> Self {
+    pub fn new(app_handle: AppHandle) -> Self {
         Self {
-            app,
+            app_handle,
             state: AppState::default(),
             client: None,
             network_eventloop: None,
@@ -57,7 +57,7 @@ impl ChatApp {
         }
     }
 
-    pub fn initialize(&mut self) -> anyhow::Result<()> {
+    pub fn initialize(mut self) -> anyhow::Result<Self> {
         let network = network::new(None)?;
         self.client = Some(network.client.clone());
         self.network_eventloop = Some(network.event_loop);
@@ -84,21 +84,23 @@ impl ChatApp {
             state: self.state.clone(),
             managers: vec![Box::new(group), Box::new(user)],
         });
+
         self.frontend_eventloop = Some(FrontendEventLoop {
-            app: self.app.clone(),
-            frontend_receiver,
+            app: self.app_handle.clone(),
+            frontend_receiver: frontend_receiver,
             state: self.state.clone(),
         });
-        Ok(())
+
+        Ok(self)
     }
-    pub async fn run(self) -> anyhow::Result<()> {
-        let Some(network_eventloop) = self.network_eventloop else {
+    pub async fn run(&mut self) -> anyhow::Result<()> {
+        let Some(network_eventloop) = self.network_eventloop.take() else {
             anyhow::bail!("network event loop is not initialized");
         };
-        let Some(inbound_event_loop) = self.inbound_eventloop else {
+        let Some(inbound_event_loop) = self.inbound_eventloop.take() else {
             anyhow::bail!("inbound event loop is not initialized");
         };
-        let Some(frontend_eventloop) = self.frontend_eventloop else {
+        let Some(frontend_eventloop) = self.frontend_eventloop.take() else {
             anyhow::bail!("frontend event loop is not initialized");
         };
         let (_, _, _) = join![
@@ -109,7 +111,7 @@ impl ChatApp {
         Ok(())
     }
     pub fn command_handle(&self) -> anyhow::Result<AppCommandHandle> {
-        let  Some(client) = &self.client else {
+        let Some(client) = &self.client else {
             anyhow::bail!("client is not initialized");
         };
 

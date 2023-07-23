@@ -1,7 +1,7 @@
 use std::{fmt::Display, io, path::PathBuf};
 
 use libp2p::{
-    gossipsub::error::{PublishError, SubscriptionError},
+    gossipsub::{PublishError, SubscriptionError},
     request_response::OutboundFailure,
     swarm::DialError,
     PeerId, TransportError,

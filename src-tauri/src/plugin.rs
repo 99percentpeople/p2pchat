@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 
-use libp2p::{swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
-
 use crate::{
     chat_app::app_command::AppCommandHandle,
     error::NetworkError,
     models::{GroupId, GroupInfo, Setting},
     network::message::Message,
+};
+use libp2p::{swarm::derive_prelude::ListenerId, Multiaddr, PeerId};
+use tauri::{
+    plugin::{Builder, TauriPlugin},
+    Runtime,
 };
 
 #[tauri::command]
@@ -104,4 +107,23 @@ pub fn get_local_peer_id(
     handle: tauri::State<'_, AppCommandHandle>,
 ) -> Result<PeerId, NetworkError> {
     Ok(handle.get_local_peer_id())
+}
+
+pub fn init<R: Runtime>() -> TauriPlugin<R> {
+    Builder::new("chat")
+        .invoke_handler(tauri::generate_handler![
+            get_listeners,
+            start_listen,
+            stop_listen,
+            setting,
+            dail,
+            publish_message,
+            new_group,
+            subscribe,
+            unsubscribe,
+            invoke_manager,
+            get_managers,
+            get_local_peer_id,
+        ])
+        .build()
 }

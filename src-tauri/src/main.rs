@@ -4,27 +4,26 @@
 )]
 mod chat_app;
 mod error;
-mod handlers;
 mod managers;
 mod models;
 mod network;
+mod plugin;
 mod store;
 
 use anyhow::Context;
-use tauri::{generate_handler, Manager};
-use tokio::{join, task::LocalSet};
+use tauri::Manager;
 
 use chat_app::ChatApp;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
-    let local = LocalSet::new();
 
-    let tauri_app = tauri::Builder::default()
+    tauri::Builder::default()
+        .plugin(plugin::init())
         .setup(move |app| {
-            let window = app.get_window("main").unwrap();
-
+            let binding = app.windows();
+            let window = binding.get("main").expect("failed to get window binding");
             #[cfg(target_os = "macos")]
             apply_vibrancy(&window, NSVisualEffectMaterial::AppearanceBased, None, None)
                 .with_context(|| {
@@ -32,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
                 })?;
 
             #[cfg(target_os = "windows")]
-            window_vibrancy::apply_mica(&window)
+            window_vibrancy::apply_mica(&window, None)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))
                 .with_context(|| {
                     "Unsupported platform! 'apply_mica' is only supported on Windows"
@@ -41,34 +40,16 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(any(windows, target_os = "macos"))]
             window_shadows::set_shadow(&window, true).unwrap();
 
+            let mut chat_app = ChatApp::new(app.app_handle()).initialize()?;
+            let handle = chat_app.command_handle()?;
+            tokio::spawn(async move {
+                chat_app.run().await;
+            });
+            app.manage(handle);
+
             Ok(())
         })
-        .invoke_handler(generate_handler![
-            handlers::get_listeners,
-            handlers::start_listen,
-            handlers::stop_listen,
-            handlers::setting,
-            handlers::dail,
-            handlers::publish_message,
-            handlers::new_group,
-            handlers::subscribe,
-            handlers::unsubscribe,
-            handlers::invoke_manager,
-            handlers::get_managers,
-            handlers::get_local_peer_id,
-        ])
-        .build(tauri::generate_context!())?;
+        .run(tauri::generate_context!())?;
 
-    let mut chat_app = ChatApp::new(tauri_app.handle());
-    chat_app.initialize()?;
-    tauri_app.manage(chat_app.command_handle()?);
-
-    local.spawn_local(async {
-        tauri_app.run(|_app_handle, event| match event {
-            _ => {}
-        })
-    });
-
-    let (_, _) = join!(local, tokio::spawn(chat_app.run()));
     Ok(())
 }

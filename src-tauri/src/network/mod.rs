@@ -7,15 +7,10 @@ use crate::models::{GroupId, GroupInfo, GroupMessage};
 /// The network module, encapsulating all network related logic.
 use futures::StreamExt;
 
-use libp2p::gossipsub::{GossipsubEvent, MessageId, Sha256Topic};
 use libp2p::identity::ed25519;
-use libp2p::request_response::{
-    ProtocolSupport, RequestId, RequestResponse, RequestResponseEvent, RequestResponseMessage,
-    ResponseChannel,
-};
 use libp2p::swarm::derive_prelude::ListenerId;
 use libp2p::swarm::{keep_alive, Swarm, SwarmBuilder, SwarmEvent};
-use libp2p::{gossipsub, mdns};
+use libp2p::{gossipsub, mdns, request_response};
 use libp2p::{identity, Multiaddr, PeerId};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{hash_map, HashMap};
@@ -44,22 +39,19 @@ pub fn new(secret_key_seed: Option<u8>) -> anyhow::Result<Network> {
         Some(seed) => {
             let mut bytes = [0u8; 32];
             bytes[0] = seed;
-            let secret_key = ed25519::SecretKey::from_bytes(&mut bytes).expect(
-                "this returns `Err` only if the length is wrong; the length is correct; qed",
-            );
-            identity::Keypair::Ed25519(secret_key.into())
+            identity::Keypair::ed25519_from_bytes(&mut bytes)?
         }
         None => identity::Keypair::generate_ed25519(),
     };
     let peer_id = id_keys.public().to_peer_id();
     // To content-address message, we can take the hash of message and use it as an ID.
-    let message_id_fn = |message: &gossipsub::GossipsubMessage| {
+    let message_id_fn = |message: &gossipsub::Message| {
         let mut s = DefaultHasher::new();
         message.data.hash(&mut s);
         gossipsub::MessageId::from(s.finish().to_string())
     };
     // Set a custom gossipsub configuration
-    let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
+    let gossipsub_config = gossipsub::ConfigBuilder::default()
         .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
         .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
         .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
@@ -67,20 +59,22 @@ pub fn new(secret_key_seed: Option<u8>) -> anyhow::Result<Network> {
         .expect("Valid config");
 
     // build a gossipsub network behaviour
-    let gossipsub = gossipsub::Gossipsub::new(
+    let gossipsub = gossipsub::Behaviour::new(
         gossipsub::MessageAuthenticity::Signed(id_keys.clone()),
         gossipsub_config,
     )
     .expect("Correct configuration");
 
     // Create a Request-Response protocol supporting the FileExchange protocol.
-    let request_response = RequestResponse::new(
-        FileExchangeCodec(),
-        std::iter::once((FileExchangeProtocol(), ProtocolSupport::Full)),
-        Default::default(),
+    let request_response = request_response::Behaviour::new(
+        std::iter::once((
+            FileExchangeProtocol(),
+            request_response::ProtocolSupport::Full,
+        )),
+        request_response::Config::default(),
     );
     // Create a mdns behaviour
-    let mdns = mdns::tokio::Behaviour::new(mdns::Config::default()).unwrap();
+    let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id).unwrap();
 
     let behaviour = ComposedBehaviour {
         mdns,
@@ -175,7 +169,11 @@ impl Client {
     }
 
     /// Respond with the provided file content to the given request.
-    pub async fn response(&self, response: Response, channel: ResponseChannel<FileResponse>) {
+    pub async fn response(
+        &self,
+        response: Response,
+        channel: request_response::ResponseChannel<FileResponse>,
+    ) {
         self.sender
             .send(Command::Response { response, channel })
             .await
@@ -184,9 +182,9 @@ impl Client {
 
     pub async fn publish(
         &self,
-        topic: Sha256Topic,
+        topic: gossipsub::Sha256Topic,
         message: Message,
-    ) -> Result<MessageId, NetworkError> {
+    ) -> Result<gossipsub::MessageId, NetworkError> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .sender
@@ -200,7 +198,7 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
 
-    pub async fn subscribe(&self, topic: Sha256Topic) -> Result<(), NetworkError> {
+    pub async fn subscribe(&self, topic: gossipsub::Sha256Topic) -> Result<(), NetworkError> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .sender
@@ -210,7 +208,7 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
 
-    pub async fn unsubscribe(&self, topic: Sha256Topic) -> Result<(), NetworkError> {
+    pub async fn unsubscribe(&self, topic: gossipsub::Sha256Topic) -> Result<(), NetworkError> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .sender
@@ -246,7 +244,8 @@ pub struct EventLoop {
     command_receiver: mpsc::Receiver<Command>,
     event_sender: mpsc::Sender<InboundEvent>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), NetworkError>>>,
-    pending_request_file: HashMap<RequestId, oneshot::Sender<Result<Response, NetworkError>>>,
+    pending_request_file:
+        HashMap<request_response::RequestId, oneshot::Sender<Result<Response, NetworkError>>>,
 }
 
 impl EventLoop {
@@ -283,24 +282,19 @@ impl EventLoop {
     ) {
         match event {
             SwarmEvent::Behaviour(ComposedEvent::Gossipsub(event)) => match event {
-                GossipsubEvent::Message {
-                    propagation_source: _,
-                    message_id,
-                    message,
-                } => {
+                gossipsub::Event::Message { message, .. } => {
                     let group_message =
                         serde_json::from_slice::<GroupMessage>(&message.data).unwrap();
                     let _ = self
                         .event_sender
                         .send(InboundEvent::Message {
-                            message_id,
-                            topic: message.topic,
+                            topic: message.topic.clone(),
                             message: group_message,
                         })
                         .await
                         .expect("Event receiver not to be dropped.");
                 }
-                GossipsubEvent::Subscribed { peer_id, topic } => {
+                gossipsub::Event::Subscribed { peer_id, topic } => {
                     log::info!("{:?} Subscribed to topic: {:?}", peer_id, topic);
 
                     let _ = self
@@ -309,19 +303,19 @@ impl EventLoop {
                         .await
                         .expect("Event receiver not to be dropped.");
                 }
-                GossipsubEvent::Unsubscribed { peer_id, topic } => {
+                gossipsub::Event::Unsubscribed { peer_id, topic } => {
                     let _ = self
                         .event_sender
                         .send(InboundEvent::Unsubscribed { peer_id, topic })
                         .await
                         .expect("Event receiver not to be dropped.");
                 }
-                GossipsubEvent::GossipsubNotSupported { .. } => {}
+                gossipsub::Event::GossipsubNotSupported { .. } => {}
             },
             SwarmEvent::Behaviour(ComposedEvent::RequestResponse(
-                RequestResponseEvent::Message { message, .. },
+                request_response::Event::Message { message, .. },
             )) => match message {
-                RequestResponseMessage::Request {
+                request_response::Message::Request {
                     request, channel, ..
                 } => {
                     let _ = self
@@ -333,7 +327,7 @@ impl EventLoop {
                         .await
                         .expect("Event receiver not to be dropped.");
                 }
-                RequestResponseMessage::Response {
+                request_response::Message::Response {
                     request_id,
                     response,
                 } => {
@@ -345,7 +339,7 @@ impl EventLoop {
                 }
             },
             SwarmEvent::Behaviour(ComposedEvent::RequestResponse(
-                RequestResponseEvent::OutboundFailure {
+                request_response::Event::OutboundFailure {
                     request_id, error, ..
                 },
             )) => {
@@ -356,7 +350,7 @@ impl EventLoop {
                     .send(Err(error.into()));
             }
             SwarmEvent::Behaviour(ComposedEvent::RequestResponse(
-                RequestResponseEvent::ResponseSent { .. },
+                request_response::Event::ResponseSent { .. },
             )) => {}
             SwarmEvent::Behaviour(ComposedEvent::Mdns(event)) => match event {
                 mdns::Event::Discovered(list) => {
@@ -449,7 +443,7 @@ impl EventLoop {
                 }
             }
             SwarmEvent::IncomingConnectionError { .. } => {}
-            SwarmEvent::Dialing(..) => {}
+            SwarmEvent::Dialing { .. } => {}
             e => log::debug!("{e:?}"),
         }
     }
@@ -524,7 +518,6 @@ impl EventLoop {
                     Ok(message_id) => {
                         self.event_sender
                             .send(InboundEvent::Message {
-                                message_id: message_id.clone(),
                                 topic: topic.hash(),
                                 message: group_message,
                             })
@@ -609,19 +602,19 @@ enum Command {
     },
     Response {
         response: Response,
-        channel: ResponseChannel<FileResponse>,
+        channel: request_response::ResponseChannel<FileResponse>,
     },
     Publish {
-        topic: Sha256Topic,
+        topic: gossipsub::Sha256Topic,
         message: Message,
-        sender: oneshot::Sender<Result<MessageId, NetworkError>>,
+        sender: oneshot::Sender<Result<gossipsub::MessageId, NetworkError>>,
     },
     Subscribe {
-        topic: Sha256Topic,
+        topic: gossipsub::Sha256Topic,
         sender: oneshot::Sender<Result<(), NetworkError>>,
     },
     Unsubscribe {
-        topic: Sha256Topic,
+        topic: gossipsub::Sha256Topic,
         sender: oneshot::Sender<Result<(), NetworkError>>,
     },
     ConnectedPeers {

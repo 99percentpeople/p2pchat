@@ -41,7 +41,7 @@ impl AppCommandHandle {
     }
     pub async fn dial(&self, addr: Multiaddr) -> Result<(), NetworkError> {
         let peer_id = match addr.iter().last() {
-            Some(Protocol::P2p(hash)) => PeerId::from_multihash(hash).expect("Valid hash."),
+            Some(Protocol::P2p(peer_id)) => peer_id,
             _ => {
                 return Err(NetworkError::InvalidAddress(
                     "Expect peer multiaddr to contain peer ID.".to_string(),

@@ -121,11 +121,7 @@ impl HandleInboundEvent for GroupManager {
                 }
                 _ => {}
             },
-            InboundEvent::Message {
-                message_id: _,
-                topic,
-                message,
-            } => {
+            InboundEvent::Message { topic, message } => {
                 if let Some(group_id) = self.get_group_by_hash(&topic).await {
                     self.add_message(&group_id, message.clone()).await;
                     sender
@@ -146,9 +142,11 @@ impl HandleInboundEvent for GroupManager {
                         }
                         // if local peer is not the one who create the group
                         _ => {
-                            let Ok(Response::Group((group_id, group_info))) = client.request(peer_id, Request::Group(topic.clone())).await else {
-                                        return Err(anyhow::anyhow!("group not found").into());
-                                    };
+                            let Ok(Response::Group((group_id, group_info))) =
+                                client.request(peer_id, Request::Group(topic.clone())).await
+                            else {
+                                return Err(anyhow::anyhow!("group not found").into());
+                            };
                             (group_id, group_info)
                         }
                     };

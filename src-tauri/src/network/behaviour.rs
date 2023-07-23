@@ -4,46 +4,45 @@ use derive_more::From;
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use libp2p::{
     core::upgrade::{read_length_prefixed, read_varint, write_length_prefixed, write_varint},
-    gossipsub::{Gossipsub, GossipsubEvent, TopicHash},
-    mdns,
-    request_response::{ProtocolName, RequestResponse, RequestResponseCodec, RequestResponseEvent},
+    gossipsub::{self, TopicHash},
+    mdns, request_response,
     swarm::{keep_alive, NetworkBehaviour},
 };
 use tokio::io;
 
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "ComposedEvent")]
+#[behaviour(to_swarm = "ComposedEvent")]
 pub struct ComposedBehaviour {
-    pub request_response: RequestResponse<FileExchangeCodec>,
-    pub gossipsub: Gossipsub,
+    pub request_response: request_response::Behaviour<FileExchangeCodec>,
+    pub gossipsub: gossipsub::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
     pub keep_alive: keep_alive::Behaviour,
 }
 
 #[derive(Debug, From)]
 pub enum ComposedEvent {
-    RequestResponse(RequestResponseEvent<FileRequest, FileResponse>),
-    Gossipsub(GossipsubEvent),
+    RequestResponse(request_response::Event<FileRequest, FileResponse>),
+    Gossipsub(gossipsub::Event),
     Mdns(mdns::Event),
     KeepAlive(void::Void),
 }
 // Simple file exchange protocol
 #[derive(Debug, Clone)]
 pub struct FileExchangeProtocol();
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct FileExchangeCodec();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRequest(pub Request);
 
-impl ProtocolName for FileExchangeProtocol {
-    fn protocol_name(&self) -> &[u8] {
-        "/information-exchange/1".as_bytes()
+impl AsRef<str> for FileExchangeProtocol {
+    fn as_ref(&self) -> &str {
+        "file-exchange-protocol"
     }
 }
 
 #[async_trait]
-impl RequestResponseCodec for FileExchangeCodec {
+impl request_response::Codec for FileExchangeCodec {
     type Protocol = FileExchangeProtocol;
     type Request = FileRequest;
     type Response = FileResponse;
